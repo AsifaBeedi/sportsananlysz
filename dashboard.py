@@ -8,25 +8,26 @@ from pathlib import Path
 import streamlit as st
 
 # ============================================================================
-# PATH HELPERS - Matches YOUR exact folder structure
+# PATH HELPER - Works with YOUR exact folder structure
 # ============================================================================
 
 def find_stats_file() -> Path:
     """Find match_stats.json in your folder structure."""
     possible_paths = [
-        Path("data/models/scripts/match_stats.json"),  # Your actual location
+        Path("data/match_stats.json"),                    # Your JSON location
         Path("match_stats.json"),
+        Path("data/models/scripts/match_stats.json"),
     ]
     
     for path in possible_paths:
         if path.exists():
             return path
     
-    return Path("data/models/scripts/match_stats.json")
+    return Path("data/match_stats.json")
 
 
 def make_portable_path(file_path: str) -> Path:
-    """Convert paths to work with YOUR folder structure."""
+    """Convert any path to work with your folder structure."""
     if not file_path:
         return Path("")
     
@@ -39,13 +40,14 @@ def make_portable_path(file_path: str) -> Path:
     # Get just the filename
     filename = path.name
     
-    # Search in YOUR actual folders (root level)
+    # Search in your actual folder structure
     search_locations = [
-        Path("review_frames") / filename,      # Your bad frames are here
-        Path("snippets") / filename,           # Your video clips are here
-        Path(filename),                         # Root level files
-        Path("data") / filename,
-        Path("data/models/scripts") / filename,
+        Path("data/review_frames") / filename,   # Your bad frames
+        Path("data/snippets") / filename,        # Your video clips
+        Path("data") / filename,                  # Preview frame & output video
+        Path("review_frames") / filename,
+        Path("snippets") / filename,
+        Path(filename),
     ]
     
     for loc in search_locations:
@@ -184,20 +186,21 @@ def merge_with_defaults(data: dict, defaults: dict) -> dict:
 
 
 def load_stats() -> dict:
-    """Load stats from match_stats.json."""
+    """Load stats from match_stats.json in your folder structure."""
     defaults = default_payload()
     stats_path = find_stats_file()
     
     if not stats_path.exists():
+        st.warning(f"Stats file not found at: {stats_path}")
         return defaults
 
     try:
         with stats_path.open(encoding="utf-8") as file:
             data = json.load(file)
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as e:
         broken_payload = merge_with_defaults({}, defaults)
         broken_payload["status"] = "unavailable"
-        broken_payload["notes"] = ["Could not read analytics output yet."]
+        broken_payload["notes"] = [f"Could not read analytics output: {str(e)}"]
         return broken_payload
 
     if "summary" in data:
@@ -296,13 +299,13 @@ def player_table(players: list[dict]) -> list[dict]:
         rows.append(
             {
                 "Player ID": player.get("track_id"),
-                "Speed": player.get("speed_px"),
+                "Speed (px/frame)": player.get("speed_px"),
                 "Posture": posture.get("posture_label"),
-                "Score": posture.get("posture_score"),
+                "Posture Score": posture.get("posture_score"),
                 "Risk": posture.get("injury_risk_level"),
                 "Swing Phase": event_state.get("swing_phase"),
-                "Shot": event_state.get("shot_label_candidate"),
-                "Racket": racket_state.get("swing_direction"),
+                "Shot Candidate": event_state.get("shot_label_candidate"),
+                "Racket Direction": racket_state.get("swing_direction"),
             }
         )
     return rows
@@ -317,7 +320,7 @@ def event_table(recent_events: list[dict]) -> list[dict]:
                 "Type": event.get("event_type"),
                 "Player": event.get("track_id"),
                 "Shot": event.get("shot_label"),
-                "Time (s)": event.get("timestamp_seconds"),
+                "Timestamp (s)": event.get("timestamp_seconds"),
             }
         )
     return rows
@@ -336,7 +339,7 @@ def render_recommendation_card(item: dict) -> None:
         if detail:
             st.write(detail)
         if evidence:
-            with st.expander("Details"):
+            with st.expander("Why this showed up"):
                 st.json(evidence)
 
 
@@ -380,13 +383,14 @@ pose_summary = data.get("pose", {}).get("summary", {})
 events = data.get("events", {})
 ball_tracking = data.get("ball_tracking", {})
 ball_speed = data.get("ball_speed", {})
+impact_power = data.get("impact_power", {})
 recommendations = data.get("recommendations", {})
 players = data.get("players", [])
 clip_summary = data.get("clip_summary", {})
 data_age_seconds = current_data_age_seconds(data)
 data_freshness = freshness_label(data_age_seconds, str(data.get("status", "unknown")))
 
-# Fix paths
+# Fix paths for your folder structure
 preview_frame_path = make_portable_path(data.get("preview_frame_path", ""))
 output_video_path = make_portable_path(data.get("output_video_path", ""))
 
@@ -396,25 +400,25 @@ primary = primary_player(players, events.get("primary_player_id"))
 # SIDEBAR
 # ============================================================================
 
-st.sidebar.title("Session")
+st.sidebar.title("🎾 Session")
 st.sidebar.caption("Sport-agnostic core")
-st.sidebar.write(f"Sport: {sport_profile.get('display_name', data.get('sport', 'unknown'))}")
-st.sidebar.write(f"Phase: {data.get('phase', 'unknown')}")
-st.sidebar.write(f"Status: {data.get('status', 'unknown')}")
-st.sidebar.write(f"Session ID: {data.get('session_id') or '-'}")
-st.sidebar.write(f"Video: {data.get('source_video', 'unknown')}")
-st.sidebar.write(f"Frame: {data.get('frame_index', 0)}")
-st.sidebar.write(f"Time: {format_value(data.get('timestamp_seconds'), 2, ' s')}")
+st.sidebar.write(f"**Sport:** {sport_profile.get('display_name', data.get('sport', 'unknown'))}")
+st.sidebar.write(f"**Phase:** {data.get('phase', 'unknown')}")
+st.sidebar.write(f"**Status:** {data.get('status', 'unknown')}")
+st.sidebar.write(f"**Session ID:** {data.get('session_id') or '-'}")
+st.sidebar.write(f"**Video:** {data.get('source_video', 'unknown')}")
+st.sidebar.write(f"**Frame:** {data.get('frame_index', 0)}")
+st.sidebar.write(f"**Time:** {format_value(data.get('timestamp_seconds'), 2, ' s')}")
 
 st.sidebar.divider()
-st.sidebar.metric("Players", len(summary.get("tracked_player_ids", [])))
-st.sidebar.metric("Ball Track", "Active" if ball_tracking.get("active") else "Waiting")
-st.sidebar.metric("Advice", summary.get("recommendation_count", 0))
+st.sidebar.metric("👥 Tracked Players", len(summary.get("tracked_player_ids", [])))
+st.sidebar.metric("🎯 Ball Track", "Active" if ball_tracking.get("active") else "Waiting")
+st.sidebar.metric("💡 Recommendations", summary.get("recommendation_count", 0))
 
 notes = data.get("notes", [])
 if notes:
     st.sidebar.divider()
-    st.sidebar.subheader("Notes")
+    st.sidebar.subheader("📝 Notes")
     for note in notes[:4]:
         st.sidebar.write(f"- {note}")
 
@@ -423,19 +427,29 @@ if notes:
 # ============================================================================
 
 st.title("🎾 SPORTS AI ANALYTICS DASHBOARD")
-st.caption(f"{sport_profile.get('display_name', data.get('sport', 'Unknown'))} | Real-time tracking")
+st.caption(f"{sport_profile.get('display_name', data.get('sport', 'Unknown'))} | Real-time player & ball tracking | Sport-agnostic core")
 
-# Controls
-col1, col2, col3 = st.columns([1, 1, 6])
-if col1.button("🔄 Refresh"):
+# Refresh controls
+col1, col2, col3, col4 = st.columns([1, 1, 1, 6])
+if col1.button("🔄 Refresh", use_container_width=True):
     st.rerun()
 auto_refresh = col2.toggle("Auto Refresh", value=st.session_state.get("auto_refresh", False))
 st.session_state["auto_refresh"] = auto_refresh
+if col3.button("📁 Show Paths", use_container_width=True):
+    with st.expander("File Paths Debug"):
+        st.write(f"Stats file: {find_stats_file()}")
+        st.write(f"Preview frame: {preview_frame_path}")
+        st.write(f"Preview exists: {preview_frame_path.exists()}")
+        st.write(f"Output video: {output_video_path}")
+        st.write(f"Output exists: {output_video_path.exists()}")
+        st.write(f"Review frames dir: {Path('data/review_frames').exists()}")
+        st.write(f"Snippets dir: {Path('data/snippets').exists()}")
 
 # ============================================================================
-# METRICS
+# METRIC ROW
 # ============================================================================
 
+st.subheader("📊 Live Metrics")
 metric_cols = st.columns(6)
 metric_cols[0].metric("👥 Players", format_value(summary.get("players_detected"), 0))
 metric_cols[1].metric("⚡ Ball Speed", format_value(summary.get("ball_speed_px_per_sec"), 2, " px/s"))
@@ -445,7 +459,7 @@ metric_cols[4].metric("💪 Impact", format_value(summary.get("impact_power_scor
 metric_cols[5].metric("💡 Advice", format_value(summary.get("recommendation_count"), 0))
 
 # ============================================================================
-# LIVE FRAME & STATUS
+# LIVE ANALYSIS FRAME & STATUS
 # ============================================================================
 
 live_cols = st.columns([3, 2])
@@ -457,101 +471,124 @@ with live_cols[0]:
                  caption=f"Frame {data.get('frame_index', 0)} at {data.get('timestamp_seconds', 0)}s")
     else:
         st.warning("Preview frame not found")
-        st.info(f"Expected at: {preview_frame_path}")
+        st.info(f"Looking for: {preview_frame_path}")
+        st.caption("Make sure latest_annotated_frame.jpg is in the 'data/' folder")
 
 with live_cols[1]:
     render_key_value_block(
-        "Session Status",
+        "📋 Session Status",
         [
             ("Session ID", data.get("session_id")),
-            ("Started", data.get("session_started_at")),
+            ("Session Started", data.get("session_started_at")),
             ("Last Updated", data.get("last_updated_at")),
             ("Status", data_freshness),
-            ("Source", data.get("source_video")),
+            ("Source Video", data.get("source_video")),
+            ("Frame Index", data.get("frame_index")),
             ("Runtime", format_value(data.get("runtime_seconds"), 1, " s")),
         ],
     )
     if output_video_path.exists():
         st.video(str(output_video_path))
+    elif data.get("output_video_path"):
+        st.info(f"Output video: {Path(data.get('output_video_path')).name}")
 
 # ============================================================================
 # TABS
 # ============================================================================
 
-overview_tab, motion_tab, recommendations_tab, review_tab, raw_tab = st.tabs(
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["📊 Overview", "📈 Motion", "💡 Recommendations", "🔍 Review Room", "📄 Raw Data"]
 )
 
 # ---------------------------------------------------------------------------
-with overview_tab:
-    st.subheader("Tracked Players")
+# TAB 1: OVERVIEW
+# ---------------------------------------------------------------------------
+with tab1:
+    st.subheader("👥 Tracked Players")
     player_rows = player_table(players)
     if player_rows:
         st.dataframe(player_rows, use_container_width=True, hide_index=True)
     else:
-        st.info("No players tracked")
+        st.info("No tracked players available yet.")
     
     st.divider()
     
     col1, col2 = st.columns(2)
     with col1:
         render_key_value_block(
-            "Summary",
+            "📋 Session Summary",
             [
                 ("Status", data.get("status")),
                 ("Sport", sport_profile.get("display_name")),
+                ("Equipment", sport_profile.get("equipment_name")),
                 ("Players with Pose", pose_summary.get("players_with_pose", 0)),
-                ("Avg Posture", pose_summary.get("avg_posture_score")),
-                ("Injury Risks", pose_summary.get("injury_risk_player_ids", [])),
+                ("Average Posture Score", pose_summary.get("avg_posture_score")),
+                ("Injury Risk Players", pose_summary.get("injury_risk_player_ids", [])),
             ],
         )
     with col2:
         render_key_value_block(
-            "Tracking",
+            "🎯 Ball & Racket Tracking",
             [
-                ("Ball Track", "Active" if ball_tracking.get("active") else "Inactive"),
-                ("Trajectory", ball_tracking.get("trajectory_length")),
-                ("Racket Track", "Active" if summary.get("racket_track_active") else "Inactive"),
-                ("Racket Path", format_value(summary.get("racket_path_length_px"), 1, " px")),
+                ("Ball Track Active", "Yes" if ball_tracking.get("active") else "No"),
+                ("Trajectory Length", ball_tracking.get("trajectory_length")),
+                ("Racket Track Active", "Yes" if summary.get("racket_track_active") else "No"),
+                ("Racket Path Length", format_value(summary.get("racket_path_length_px"), 1, " px")),
+                ("Primary Player", events.get("primary_player_id")),
             ],
         )
 
 # ---------------------------------------------------------------------------
-with motion_tab:
+# TAB 2: MOTION
+# ---------------------------------------------------------------------------
+with tab2:
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Ball Speed")
+        st.subheader("🏃 Ball Speed Trend")
         speed_series = ball_speed.get("speed_series", [])
         if speed_series:
             speed_values = [s.get("speed_px_per_sec", 0) for s in speed_series if s.get("speed_px_per_sec") is not None]
             if speed_values:
-                st.line_chart({"Speed (px/s)": speed_values}, use_container_width=True)
+                st.line_chart({"Ball Speed (px/s)": speed_values}, use_container_width=True)
+        else:
+            st.info("Ball speed data will appear once tracking is active")
+        
         st.json({
-            "Current": ball_speed.get("current_speed"),
-            "Peak": ball_speed.get("peak_speed_px_per_sec"),
-            "Avg": ball_speed.get("avg_recent_speed_px_per_sec"),
+            "Current Speed": ball_speed.get("current_speed"),
+            "Peak Speed": ball_speed.get("peak_speed_px_per_sec"),
+            "Average Speed": ball_speed.get("avg_recent_speed_px_per_sec"),
         })
+    
     with col2:
-        st.subheader("Recent Events")
+        st.subheader("📅 Recent Events")
         recent_events = events.get("recent_events", [])
         if recent_events:
             st.dataframe(event_table(recent_events[-10:]), use_container_width=True, hide_index=True)
         else:
-            st.info("No events")
+            st.info("No recent events recorded")
+        
+        st.subheader("🎾 Racket Speed")
+        racket_speed_series = impact_power.get("racket_speed_series", [])
+        if racket_speed_series:
+            speed_values = [s.get("speed_px_per_sec", 0) for s in racket_speed_series]
+            st.line_chart({"Racket Speed (px/s)": speed_values}, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-with recommendations_tab:
+# TAB 3: RECOMMENDATIONS
+# ---------------------------------------------------------------------------
+with tab3:
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Session")
+        st.subheader("📋 Session Recommendations")
         session_recs = recommendations.get("session_recommendations", [])
         if session_recs:
             for rec in session_recs:
                 render_recommendation_card(rec)
         else:
-            st.success("No session recommendations")
+            st.success("No session recommendations yet")
+    
     with col2:
-        st.subheader("Player Specific")
+        st.subheader("👤 Player Recommendations")
         player_recs = recommendations.get("player_recommendations", {})
         if player_recs:
             for player_id, recs in player_recs.items():
@@ -559,96 +596,141 @@ with recommendations_tab:
                 for rec in recs:
                     render_recommendation_card(rec)
         else:
-            st.success("No player recommendations")
+            st.success("No player recommendations yet")
+    
+    # Risk summary
+    st.divider()
+    st.subheader("⚠️ Risk & Alert Summary")
+    risk_col1, risk_col2, risk_col3 = st.columns(3)
+    risk_col1.metric("Injury Risk Flags", summary.get("injury_risk_count", 0))
+    risk_col2.metric("Fall Alerts", summary.get("fall_alerts", 0))
+    risk_col3.metric("Contact Candidates", summary.get("contact_candidate_count", 0))
 
 # ---------------------------------------------------------------------------
-with review_tab:
+# TAB 4: REVIEW ROOM
+# ---------------------------------------------------------------------------
+with tab4:
     st.subheader("🔍 Review Room")
-    st.caption("Frames with poor posture or injury risk")
+    st.caption("Frames with poor posture or injury risk are automatically captured here. Click any frame to review the video clip.")
     
     bad_frames = clip_summary.get("bad_frames", [])
     snippet_index = clip_summary.get("snippet_index", {})
+    snippet_count = clip_summary.get("snippet_count", 0)
+    bad_frame_count = clip_summary.get("bad_frame_count", 0)
     
+    # Summary metrics
     col1, col2, col3 = st.columns(3)
-    col1.metric("Flagged Frames", clip_summary.get("bad_frame_count", 0))
-    col2.metric("Video Clips", clip_summary.get("snippet_count", 0))
-    col3.metric("Metric Types", len(snippet_index))
+    col1.metric("🚩 Flagged Frames", bad_frame_count)
+    col2.metric("🎬 Video Clips", snippet_count)
+    col3.metric("📊 Metric Types", len(snippet_index))
     
     st.divider()
     
     if bad_frames:
-        st.subheader("Flagged Frames")
+        st.subheader("🖼️ Flagged Frame Gallery")
+        st.caption("Click 'Play' on any frame to see the corresponding video clip")
         
         # Display frames in a grid
         for i, frame_record in enumerate(bad_frames):
             frame_path = make_portable_path(frame_record.get("frame_path", ""))
-            reason = frame_record.get("reason", "Unknown")
+            reason = frame_record.get("reason", "Unknown reason")
             timestamp = frame_record.get("timestamp", "-")
             frame_idx = frame_record.get("frame_index", "-")
             
-            cols = st.columns([1, 3, 1])
+            cols = st.columns([1, 3, 1, 1])
             with cols[0]:
                 if frame_path.exists():
                     st.image(str(frame_path), use_container_width=True)
                 else:
-                    st.warning("Missing")
+                    st.warning(f"Missing: {frame_path.name}")
+                    st.caption(f"Expected in: data/review_frames/")
+            
             with cols[1]:
                 st.caption(f"**Frame {frame_idx}** at {timestamp}")
-                st.write(reason[:150])
+                st.write(reason[:150] if len(reason) > 150 else reason)
+            
             with cols[2]:
-                if st.button(f"▶ Play", key=f"play_{i}_{frame_idx}"):
+                if st.button(f"▶ Play", key=f"play_{i}_{frame_idx}", use_container_width=True):
                     st.session_state.selected_frame = frame_idx
+            
+            with cols[3]:
+                if st.button(f"📋 Copy", key=f"copy_{i}_{frame_idx}", use_container_width=True):
+                    st.toast(f"Frame {frame_idx} info copied to clipboard")
             
             st.divider()
         
         # Show selected clip
         if st.session_state.selected_frame:
-            st.subheader(f"Clip for Frame {st.session_state.selected_frame}")
+            st.subheader(f"🎥 Video Clip for Frame {st.session_state.selected_frame}")
             frame_str = str(st.session_state.selected_frame)
             found_clip = None
+            found_metric = None
+            
             for metric, clips in snippet_index.items():
                 for clip_path in clips:
                     if frame_str in str(clip_path):
                         found_clip = make_portable_path(clip_path)
+                        found_metric = metric
                         break
                 if found_clip:
                     break
+            
             if found_clip and found_clip.exists():
+                st.caption(f"Metric type: {found_metric.replace('_', ' ').title()}")
                 st.video(str(found_clip))
             else:
-                st.info("No matching clip found")
+                st.info("No matching video clip found for this frame. Try selecting from the dropdown below.")
     else:
-        st.success("✅ No flagged frames")
+        st.success("✅ No flagged frames yet. Good form so far!")
     
     st.divider()
     
-    st.subheader("Metric Clip Viewer")
+    # Metric clip dropdown
+    st.subheader("🎥 Metric Clip Viewer")
+    st.caption("Browse all saved clips by metric type")
+    
     if snippet_index:
         selected_metric = st.selectbox(
-            "Select metric",
+            "Select metric type",
             options=list(snippet_index.keys()),
             format_func=lambda x: x.replace("_", " ").title(),
+            key="metric_selector"
         )
-        for clip_path in snippet_index.get(selected_metric, []):
-            clip = make_portable_path(clip_path)
-            if clip.exists():
-                st.video(str(clip))
-            else:
-                st.warning(f"Missing: {clip.name}")
+        
+        clips = snippet_index.get(selected_metric, [])
+        st.caption(f"Found {len(clips)} clip(s) for this metric")
+        
+        for idx, clip_path_str in enumerate(clips, 1):
+            clip = make_portable_path(clip_path_str)
+            with st.container(border=True):
+                st.caption(f"Clip {idx}: {clip.name}")
+                if clip.exists():
+                    st.video(str(clip))
+                else:
+                    st.warning(f"Clip file not found: {clip.name}")
+                    st.caption(f"Expected location: data/snippets/")
     else:
-        st.info("No clips available")
+        st.info("📭 No video clips available. Run the detector to generate clips for bad frames.")
 
 # ---------------------------------------------------------------------------
-with raw_tab:
-    st.subheader("Complete Data")
+# TAB 5: RAW DATA
+# ---------------------------------------------------------------------------
+with tab5:
+    st.subheader("📄 Complete Analytics Data (JSON)")
+    st.caption("This is the raw data from match_stats.json")
     st.json(data)
 
-# ---------------------------------------------------------------------------
+# ============================================================================
+# PIPELINE NOTES
+# ============================================================================
 if notes:
-    st.subheader("Notes")
+    st.subheader("📝 Pipeline Notes")
     for note in notes:
         render_note(note)
 
+# ============================================================================
+# AUTO REFRESH
+# ============================================================================
 if auto_refresh:
     time.sleep(2)
     st.rerun()

@@ -3232,71 +3232,71 @@
   "session_id": "tennis-1776152758",
   "session_started_at": "2026-04-14T13:15:58",
   "last_updated_at": "2026-04-14T13:19:54",
-  "preview_frame_path": "latest_annotated_frame.jpg",
-  "output_video_path": "annotated_match_output.mp4",
+  "preview_frame_path": "data/latest_annotated_frame.jpg",
+  "output_video_path": "data/annotated_match_output.mp4",
   "runtime_seconds": 235.4,
   "clip_summary": {
     "snippet_index": {
       "contact_candidate": [
-        "snippets/tennis-1776152758_contact_candidate_1776152762039.mp4",
-        "snippets/tennis-1776152758_contact_candidate_1776152775110.mp4"
+        "data/snippets/tennis-1776152758_contact_candidate_1776152762039.mp4",
+        "data/snippets/tennis-1776152758_contact_candidate_1776152775110.mp4"
       ],
       "injury_risk_player_1": [
-        "snippets/tennis-1776152758_injury_risk_player_1_1776152763651.mp4",
-        "snippets/tennis-1776152758_injury_risk_player_1_1776152777025.mp4",
-        "snippets/tennis-1776152758_injury_risk_player_1_1776152791910.mp4"
+        "data/snippets/tennis-1776152758_injury_risk_player_1_1776152763651.mp4",
+        "data/snippets/tennis-1776152758_injury_risk_player_1_1776152777025.mp4",
+        "data/snippets/tennis-1776152758_injury_risk_player_1_1776152791910.mp4"
       ],
       "injury_risk_player_6": [
-        "snippets/tennis-1776152758_injury_risk_player_6_1776152768716.mp4"
+        "data/snippets/tennis-1776152758_injury_risk_player_6_1776152768716.mp4"
       ],
       "injury_risk_player_2": [
-        "snippets/tennis-1776152758_injury_risk_player_2_1776152779475.mp4"
+        "data/snippets/tennis-1776152758_injury_risk_player_2_1776152779475.mp4"
       ],
       "injury_risk_player_14": [
-        "snippets/tennis-1776152758_injury_risk_player_14_1776152800922.mp4"
+        "data/snippets/tennis-1776152758_injury_risk_player_14_1776152800922.mp4"
       ]
     },
     "snippet_count": 8,
     "bad_frames": [
       {
-        "frame_path": "review_frames/tennis-1776152758_000117_Low_Posture_Score_(59)__Player_1.jpg",
-        "reason": "Low Posture Score (59) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000117_Low_Posture_Score_(59)_Player_1.jpg",
+        "reason": "Low Posture Score (59) \u2013 Player 1",
         "timestamp": "4.68s",
         "frame_index": 117
       },
       {
-        "frame_path": "review_frames/tennis-1776152758_000125_Low_Posture_Score_(58)__Player_1.jpg",
-        "reason": "Low Posture Score (58) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000125_Low_Posture_Score_(58)_Player_1.jpg",
+        "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.00s",
         "frame_index": 125
       },
       {
-        "frame_path": "review_frames/tennis-1776152758_000126_Low_Posture_Score_(58)__Player_1.jpg",
-        "reason": "Low Posture Score (58) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000126_Low_Posture_Score_(58)_Player_1.jpg",
+        "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.04s",
         "frame_index": 126
       },
       {
-        "frame_path": "review_frames/tennis-1776152758_000127_Low_Posture_Score_(58)__Player_1.jpg",
-        "reason": "Low Posture Score (58) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000127_Low_Posture_Score_(58)_Player_1.jpg",
+        "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.08s",
         "frame_index": 127
       },
       {
-        "frame_path": "review_frames/tennis-1776152758_000129_Low_Posture_Score_(58)__Player_1.jpg",
-        "reason": "Low Posture Score (58) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000129_Low_Posture_Score_(58)_Player_1.jpg",
+        "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.16s",
         "frame_index": 129
       },
       {
-        "frame_path": "review_frames/tennis-1776152758_000192_Low_Posture_Score_(49)__Player_1.jpg",
-        "reason": "Low Posture Score (49) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000192_Low_Posture_Score_(49)_Player_1.jpg",
+        "reason": "Low Posture Score (49) \u2013 Player 1",
         "timestamp": "7.68s",
         "frame_index": 192
       },
       {
-        "frame_path": "review_frames/tennis-1776152758_000200_Low_Posture_Score_(41)__Player_1.jpg",
-        "reason": "Low Posture Score (41) – Player 1",
+        "frame_path": "data/review_frames/tennis-1776152758_000200_Low_Posture_Score_(41)_Player_1.jpg",
+        "reason": "Low Posture Score (41) \u2013 Player 1",
         "timestamp": "8.00s",
         "frame_index": 200
       }
