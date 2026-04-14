@@ -1,7 +1,6 @@
-# fix_json.py - Run this to fix paths in your JSON without losing data
+# fix_json.py - Fix paths to match your actual filenames
 
 import json
-import re
 from pathlib import Path
 
 # Load your original JSON
@@ -26,12 +25,19 @@ if "clip_summary" in data:
     if "bad_frames" in clip:
         for frame in clip["bad_frames"]:
             if "frame_path" in frame:
-                # Extract just the filename
+                # Get the filename
                 old_path = frame["frame_path"]
                 filename = Path(old_path).name
-                # Clean up the filename (remove unicode dash etc.)
-                filename = filename.replace("\u2013", "_").replace("–", "_")
+                
+                # Convert double underscore to single underscore
+                filename = filename.replace("__", "_")
+                
+                # Also remove any extra patterns
+                filename = filename.replace("_-_", "_")
+                
+                # Set the corrected path (pointing to review_frames folder)
                 frame["frame_path"] = f"review_frames/{filename}"
+                print(f"Fixed frame path: {filename}")
     
     # Fix snippet_index paths
     if "snippet_index" in clip:
@@ -40,16 +46,22 @@ if "clip_summary" in data:
             new_clips = []
             for clip_path in clips:
                 filename = Path(clip_path).name
+                # Fix any double underscores in video filenames too
+                filename = filename.replace("__", "_")
                 new_clips.append(f"snippets/{filename}")
+                print(f"Fixed clip: {filename}")
             new_snippet_index[metric] = new_clips
         clip["snippet_index"] = new_snippet_index
 
-# Save the fixed JSON (preserving ALL original data)
+# Save the fixed JSON
 with open(json_path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
 
+print("\n" + "="*50)
 print("✅ Fixed JSON paths successfully!")
-print(f"   Preview frame: {data.get('preview_frame_path')}")
-print(f"   Output video: {data.get('output_video_path')}")
-print(f"   Bad frames: {len(data.get('clip_summary', {}).get('bad_frames', []))}")
-print(f"   Snippets: {data.get('clip_summary', {}).get('snippet_count', 0)}")
+print("="*50)
+print(f"Preview frame: {data.get('preview_frame_path')}")
+print(f"Output video: {data.get('output_video_path')}")
+print(f"Bad frames: {len(data.get('clip_summary', {}).get('bad_frames', []))}")
+print(f"Snippets: {data.get('clip_summary', {}).get('snippet_count', 0)}")
+print("\nNow restart Streamlit: streamlit run dashboard.py")
