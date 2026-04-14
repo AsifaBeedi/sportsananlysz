@@ -7,11 +7,55 @@ from pathlib import Path
 
 import streamlit as st
 
+# ============================================================================
+# PATH HELPERS - Works with YOUR folder structure
+# ============================================================================
 
-STATS_PATH = Path("match_stats.json")
-UPLOADS_DIR = Path("uploaded_videos")
-MAX_HISTORY_POINTS = 120
-FRESHNESS_WARNING_SECONDS = 5.0
+def find_stats_file() -> Path:
+    """Find match_stats.json in your folder structure."""
+    possible_paths = [
+        Path("data/models/scripts/match_stats.json"),  # Your actual location
+        Path("match_stats.json"),
+        Path("data/match_stats.json"),
+    ]
+    
+    for path in possible_paths:
+        if path.exists():
+            return path
+    
+    return Path("data/models/scripts/match_stats.json")  # Default to your path
+
+
+def make_portable_path(file_path: str) -> Path:
+    """Convert any path to work with your folder structure."""
+    if not file_path:
+        return Path("")
+    
+    path = Path(file_path)
+    
+    # If it already exists, return it
+    if path.exists():
+        return path
+    
+    # Get just the filename
+    filename = path.name
+    
+    # Search in your folder structure
+    search_locations = [
+        Path("data/models/scripts") / filename,  # Where your JSON is
+        Path("data") / filename,
+        Path("review_frames") / filename,
+        Path("snippets") / filename,
+        Path(filename),
+        Path("data/review_frames") / filename,
+        Path("data/snippets") / filename,
+    ]
+    
+    for loc in search_locations:
+        if loc.exists():
+            return loc
+    
+    return path
 
 
 def default_payload() -> dict:
@@ -143,12 +187,15 @@ def merge_with_defaults(data: dict, defaults: dict) -> dict:
 
 
 def load_stats() -> dict:
+    """Load stats from match_stats.json in your folder structure."""
     defaults = default_payload()
-    if not STATS_PATH.exists():
+    stats_path = find_stats_file()
+    
+    if not stats_path.exists():
         return defaults
 
     try:
-        with STATS_PATH.open(encoding="utf-8") as file:
+        with stats_path.open(encoding="utf-8") as file:
             data = json.load(file)
     except (json.JSONDecodeError, OSError):
         broken_payload = merge_with_defaults({}, defaults)
@@ -165,12 +212,6 @@ def load_stats() -> dict:
             "status": "legacy",
             "phase": "prototype",
             "sport": "unknown",
-            "sport_profile": {
-                "display_name": "Unknown",
-                "equipment_name": "equipment",
-                "ball_name": "ball",
-                "ball_like_object_name": "game object",
-            },
             "summary": {
                 "players_detected": data.get("players", 0),
                 "tracked_player_ids": [],
@@ -206,17 +247,6 @@ def format_value(value: object, digits: int = 2, suffix: str = "") -> str:
     return f"{value}{suffix}"
 
 
-def metric_delta(current: object, previous: object, digits: int = 2) -> str | None:
-    if current is None or previous is None:
-        return None
-    if not isinstance(current, (int, float)) or not isinstance(previous, (int, float)):
-        return None
-    change = current - previous
-    if abs(change) < 1e-9:
-        return "0"
-    return f"{change:+.{digits}f}"
-
-
 def parse_iso_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -230,17 +260,13 @@ def current_data_age_seconds(data: dict) -> float | None:
     updated_at = parse_iso_timestamp(data.get("last_updated_at"))
     if updated_at is not None:
         return max(0.0, round((datetime.now() - updated_at).total_seconds(), 2))
-
-    if STATS_PATH.exists():
-        return max(0.0, round(datetime.now().timestamp() - STATS_PATH.stat().st_mtime, 2))
-
     return None
 
 
 def freshness_label(age_seconds: float | None, status: str) -> str:
     if age_seconds is None:
         return "Unknown"
-    if status == "running" and age_seconds <= FRESHNESS_WARNING_SECONDS:
+    if status == "running":
         return "Running"
     if status == "starting":
         return "Starting"
@@ -252,59 +278,7 @@ def freshness_label(age_seconds: float | None, status: str) -> str:
         return "Waiting"
     if status == "legacy":
         return "Legacy"
-    if age_seconds <= FRESHNESS_WARNING_SECONDS:
-        return "Updated"
-    return "Old Output"
-
-
-def reset_dashboard_files() -> None:
-    payload = default_payload()
-    STATS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    preview_path = Path(payload["preview_frame_path"])
-    try:
-        preview_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
-def update_history(data: dict) -> list[dict]:
-    frame_index = int(data.get("frame_index", 0) or 0)
-    session_key = (
-        data.get("sport", "unknown"),
-        data.get("source_video", "unknown"),
-    )
-    history_key = "dashboard_history"
-    session_key_name = "dashboard_session_key"
-
-    if st.session_state.get(session_key_name) != session_key:
-        st.session_state[session_key_name] = session_key
-        st.session_state[history_key] = []
-
-    history = st.session_state.setdefault(history_key, [])
-    if history and frame_index < history[-1]["frame_index"]:
-        history.clear()
-
-    if history and frame_index == history[-1]["frame_index"]:
-        return history
-
-    summary = data.get("summary", {})
-    history.append(
-        {
-            "frame_index": frame_index,
-            "timestamp_seconds": data.get("timestamp_seconds"),
-            "players_detected": summary.get("players_detected"),
-            "ball_speed_px_per_sec": summary.get("ball_speed_px_per_sec"),
-            "impact_power_score": summary.get("impact_power_score"),
-            "avg_posture_score": summary.get("avg_posture_score"),
-            "active_swing_count": summary.get("active_swing_count"),
-            "contact_candidate_count": summary.get("contact_candidate_count"),
-            "recommendation_count": summary.get("recommendation_count"),
-            "injury_risk_count": summary.get("injury_risk_count"),
-        }
-    )
-    if len(history) > MAX_HISTORY_POINTS:
-        del history[:-MAX_HISTORY_POINTS]
-    return history
+    return "Updated"
 
 
 def primary_player(players: list[dict], primary_player_id: int | None) -> dict | None:
@@ -344,76 +318,20 @@ def event_table(recent_events: list[dict]) -> list[dict]:
             {
                 "Frame": event.get("frame_index"),
                 "Type": event.get("event_type"),
-                "Player": event.get("player_id"),
+                "Player": event.get("track_id"),
                 "Shot": event.get("shot_label"),
-                "Phase": event.get("swing_phase"),
-                "Ball Proximity": event.get("ball_proximity_px"),
+                "Timestamp (s)": event.get("timestamp_seconds"),
             }
         )
     return rows
 
 
-def recommendation_table(recommendations: list[str]) -> list[dict]:
-    return [{"Recommendation": item} for item in recommendations]
-
-
-def compact_evidence(evidence: dict | None) -> dict:
-    if not evidence:
-        return {}
-
-    filtered: dict[str, object] = {}
-    preferred_keys = (
-        "posture_score",
-        "avg_knee_deg",
-        "avg_hip_deg",
-        "ball_proximity_px",
-        "shot_label_candidate",
-        "shot_label",
-        "swing_direction",
-        "racket_path_length_px",
-        "contact_frame",
-        "before_speed_px_per_sec",
-        "after_speed_px_per_sec",
-        "speed_delta_px_per_sec",
-        "track_id",
-    )
-    for key in preferred_keys:
-        value = evidence.get(key)
-        if value is not None:
-            filtered[key] = value
-
-    coaching_notes = evidence.get("coaching_notes")
-    if coaching_notes:
-        filtered["coaching_notes"] = coaching_notes
-
-    if not filtered:
-        for key, value in evidence.items():
-            if isinstance(value, (str, int, float, bool)) or value is None:
-                filtered[key] = value
-            if len(filtered) >= 6:
-                break
-
-    return filtered
-
-
-def render_recommendation_card(item: dict, clip_summary: dict | None = None) -> None:
+def render_recommendation_card(item: dict) -> None:
     category = str(item.get("category", "general")).replace("_", " ").title()
     priority = str(item.get("priority", "info")).upper()
     title = item.get("title", "Recommendation")
     detail = item.get("detail", "")
-    evidence = compact_evidence(item.get("evidence"))
-
-    # Map recommendation category to a ClipManager metric name so we can
-    # link the card to any saved snippet for that metric type.
-    CATEGORY_TO_METRIC: dict[str, str] = {
-        "posture": "contact_candidate",
-        "injury_risk": "injury_risk_player_1",
-        "swing": "contact_candidate",
-        "ball_speed": "contact_candidate",
-        "contact": "contact_candidate",
-    }
-    raw_category = str(item.get("category", "")).lower()
-    linked_metric = CATEGORY_TO_METRIC.get(raw_category)
+    evidence = item.get("evidence", {})
 
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -422,17 +340,7 @@ def render_recommendation_card(item: dict, clip_summary: dict | None = None) -> 
             st.write(detail)
         if evidence:
             with st.expander("Why this showed up"):
-                st.write(evidence)
-        # --- Phase 5: Watch Clip button ---
-        if clip_summary and linked_metric:
-            snippet_paths = clip_summary.get("snippet_index", {}).get(linked_metric, [])
-            if snippet_paths:
-                with st.expander("▶ Watch Clip"):
-                    for clip_path in snippet_paths[-3:]:  # show up to 3 most recent
-                        p = Path(clip_path)
-                        if p.exists():
-                            st.caption(f"Clip: {p.name}")
-                            st.video(str(p))
+                st.json(evidence)
 
 
 def render_note(note: str) -> None:
@@ -453,614 +361,289 @@ def render_key_value_block(title: str, items: list[tuple[str, object]]) -> None:
         st.write(f"**{label}:** {display_value}")
 
 
-def save_uploaded_video(uploaded_file) -> Path:
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    target_path = UPLOADS_DIR / Path(uploaded_file.name).name
-    target_path.write_bytes(uploaded_file.getbuffer())
-    return target_path
-
-
-def render_login_page() -> None:
-    st.title("Sports AI Access")
-    st.caption("Dummy authentication page for the project flow.")
-
-    left_col, right_col = st.columns([3, 2])
-    with left_col:
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Login")
-
-        if submitted:
-            if username.strip() and password.strip():
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = username.strip()
-                st.session_state["app_page"] = "Live"
-                st.rerun()
-            else:
-                st.error("Enter any non-empty username and password to continue.")
-
-    with right_col:
-        st.info("This is a dummy authentication screen. Any non-empty username and password will work.")
-        st.write(
-            {
-                "next_screen_options": ["Live", "Upload Video", "Dashboard"],
-                "demo_profile": "Tennis",
-            }
-        )
-
-
-def render_sidebar(data: dict, history: list[dict]) -> None:
-    summary = data.get("summary", {})
-    sport_profile = data.get("sport_profile", {})
-    ball_tracking = data.get("ball_tracking", {})
-    notes = data.get("notes", [])
-
-    st.sidebar.title("Session")
-    st.sidebar.caption("Sport-agnostic core")
-    st.sidebar.write(f"Sport: {sport_profile.get('display_name', data.get('sport', 'unknown'))}")
-    st.sidebar.write(f"Phase: {data.get('phase', 'unknown')}")
-    st.sidebar.write(f"Status: {data.get('status', 'unknown')}")
-    st.sidebar.write(f"Session ID: {data.get('session_id') or '-'}")
-    st.sidebar.write(f"Video: {data.get('source_video', 'unknown')}")
-    st.sidebar.write(f"Frame: {data.get('frame_index', 0)}")
-    st.sidebar.write(f"Time: {format_value(data.get('timestamp_seconds'), 2, ' s')}")
-
-    st.sidebar.divider()
-    st.sidebar.metric("History Points", len(history))
-    st.sidebar.metric("Tracked Players", len(summary.get("tracked_player_ids", [])))
-    st.sidebar.metric("Ball Track", "Live" if ball_tracking.get("active") else "Waiting")
-    st.sidebar.metric("Recent Alerts", summary.get("injury_risk_count", 0) + summary.get("fall_alerts", 0))
-
-    if notes:
-        st.sidebar.divider()
-        st.sidebar.subheader("Notes")
-        for note in notes[:4]:
-            st.sidebar.write(f"- {note}")
-
+# ============================================================================
+# MAIN APP
+# ============================================================================
 
 st.set_page_config(page_title="Sports AI Analytics Dashboard", layout="wide")
 
+# Initialize session state
 if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
-if "username" not in st.session_state:
-    st.session_state["username"] = ""
-if "app_page" not in st.session_state:
-    st.session_state["app_page"] = "Live"
+    st.session_state["authenticated"] = True
 if "auto_refresh" not in st.session_state:
-    st.session_state["auto_refresh"] = True
+    st.session_state["auto_refresh"] = False
 
-if not st.session_state["authenticated"]:
-    render_login_page()
-    st.stop()
-
+# Load data
 data = load_stats()
 summary = data.get("summary", {})
 sport_profile = data.get("sport_profile", {})
 pose_summary = data.get("pose", {}).get("summary", {})
 events = data.get("events", {})
-racket = data.get("racket", {})
 ball_tracking = data.get("ball_tracking", {})
 ball_speed = data.get("ball_speed", {})
-impact_power = data.get("impact_power", {})
 recommendations = data.get("recommendations", {})
 players = data.get("players", [])
+clip_summary = data.get("clip_summary", {})
 data_age_seconds = current_data_age_seconds(data)
 data_freshness = freshness_label(data_age_seconds, str(data.get("status", "unknown")))
-preview_frame_path = Path(data.get("preview_frame_path", "latest_annotated_frame.jpg"))
-output_video_path = Path(data.get("output_video_path", "annotated_match_output.mp4"))
 
-history = update_history(data)
-render_sidebar(data, history)
-if st.sidebar.button("Log Out"):
-    st.session_state["authenticated"] = False
-    st.session_state["username"] = ""
-    st.rerun()
+# Fix paths for your folder structure
+preview_frame_path = make_portable_path(data.get("preview_frame_path", ""))
+output_video_path = make_portable_path(data.get("output_video_path", ""))
 
 primary = primary_player(players, events.get("primary_player_id"))
-primary_posture = ((primary.get("pose") or {}).get("posture", {}) if primary else {})
-primary_event_state = (primary.get("event_state") or {} if primary else {})
-primary_racket = (primary.get("racket") or {} if primary else {})
-previous_history = history[-2] if len(history) > 1 else {}
 
-st.title("SPORTS AI ANALYTICS DASHBOARD")
-st.caption(
-    f"{sport_profile.get('display_name', data.get('sport', 'Unknown'))} profile | "
-    f"{sport_profile.get('equipment_name', 'equipment').title()} tracking | "
-    f"Sport-agnostic analytics core"
-)
-nav_cols = st.columns([2, 1, 1, 1, 3])
-selected_page = nav_cols[0].radio(
-    "Mode",
-    ["Live", "Upload Video", "Dashboard"],
-    horizontal=True,
-    index=["Live", "Upload Video", "Dashboard"].index(st.session_state.get("app_page", "Live")),
-    label_visibility="collapsed",
-)
-st.session_state["app_page"] = selected_page
-if nav_cols[1].button("Refresh"):
+# ============================================================================
+# SIDEBAR
+# ============================================================================
+
+st.sidebar.title("Session")
+st.sidebar.caption("Sport-agnostic core")
+st.sidebar.write(f"Sport: {sport_profile.get('display_name', data.get('sport', 'unknown'))}")
+st.sidebar.write(f"Phase: {data.get('phase', 'unknown')}")
+st.sidebar.write(f"Status: {data.get('status', 'unknown')}")
+st.sidebar.write(f"Session ID: {data.get('session_id') or '-'}")
+st.sidebar.write(f"Video: {data.get('source_video', 'unknown')}")
+st.sidebar.write(f"Frame: {data.get('frame_index', 0)}")
+st.sidebar.write(f"Time: {format_value(data.get('timestamp_seconds'), 2, ' s')}")
+
+st.sidebar.divider()
+st.sidebar.metric("Tracked Players", len(summary.get("tracked_player_ids", [])))
+st.sidebar.metric("Ball Track", "Active" if ball_tracking.get("active") else "Waiting")
+st.sidebar.metric("Recommendations", summary.get("recommendation_count", 0))
+
+notes = data.get("notes", [])
+if notes:
+    st.sidebar.divider()
+    st.sidebar.subheader("Notes")
+    for note in notes[:4]:
+        st.sidebar.write(f"- {note}")
+
+# ============================================================================
+# MAIN CONTENT
+# ============================================================================
+
+st.title("🎾 SPORTS AI ANALYTICS DASHBOARD")
+st.caption(f"{sport_profile.get('display_name', data.get('sport', 'Unknown'))} | Real-time player & ball tracking")
+
+# Refresh controls
+col1, col2, col3 = st.columns([1, 1, 6])
+if col1.button("🔄 Refresh"):
     st.rerun()
-if nav_cols[2].button("Reset View"):
-    reset_dashboard_files()
-    st.rerun()
-auto_refresh = nav_cols[3].toggle(
-    "Auto",
-    value=st.session_state.get("auto_refresh", True),
-    help="Refresh the dashboard every 2 seconds.",
-)
+auto_refresh = col2.toggle("Auto Refresh", value=st.session_state.get("auto_refresh", False))
 st.session_state["auto_refresh"] = auto_refresh
-nav_cols[4].caption(
-    "After login, use Live for the current session, Upload Video to save a new file, and Dashboard for full analytics."
-)
 
-session_cols = st.columns([2, 1, 1, 2])
-session_cols[0].metric("Video Being Processed", data.get("source_video", "unknown"))
-session_cols[1].metric("Data State", data_freshness)
-session_cols[2].metric("Data Age", format_value(data_age_seconds, 1, " s"))
-session_cols[3].metric("Session ID", data.get("session_id") or "-")
+# ============================================================================
+# METRIC ROW
+# ============================================================================
 
-if data_freshness == "Stale":
-    st.warning(
-        "The dashboard is showing the last saved session output. Start the detector or click Refresh after new frames are processed."
-    )
-elif data_freshness == "Old Output":
-    st.info("This dashboard is showing the most recent completed run, not a currently updating live session.")
+metric_cols = st.columns(6)
+metric_cols[0].metric("👥 Players", format_value(summary.get("players_detected"), 0))
+metric_cols[1].metric("⚡ Ball Speed", format_value(summary.get("ball_speed_px_per_sec"), 2, " px/s"))
+metric_cols[2].metric("🧘 Posture", format_value(summary.get("avg_posture_score"), 0))
+metric_cols[3].metric("🏓 Swings", format_value(summary.get("active_swing_count"), 0))
+metric_cols[4].metric("💪 Impact", format_value(summary.get("impact_power_score"), 1))
+metric_cols[5].metric("💡 Advice", format_value(summary.get("recommendation_count"), 0))
 
-if selected_page == "Upload Video":
-    st.subheader("Upload Video")
-    st.caption("Upload a match file here. It will be saved locally for later processing.")
+# ============================================================================
+# LIVE ANALYSIS FRAME & STATUS
+# ============================================================================
 
-    uploaded_file = st.file_uploader(
-        "Choose a video",
-        type=["mp4", "mov", "avi", "mkv"],
-        accept_multiple_files=False,
-    )
-    if uploaded_file is not None:
-        saved_path = save_uploaded_video(uploaded_file)
-        st.session_state["uploaded_video_path"] = str(saved_path)
-        st.success(f"Video saved to {saved_path}")
+live_cols = st.columns([3, 2])
 
-    uploaded_video_path = st.session_state.get("uploaded_video_path")
-    if uploaded_video_path:
-        st.write("Saved upload:")
-        st.code(uploaded_video_path)
-        st.caption("Use this command later to process the uploaded file:")
-        st.code(
-            f'python data\\models\\scripts\\detects_players.py --sport tennis --video "{uploaded_video_path}" --no-display'
-        )
-
-    st.stop()
-
-if selected_page == "Live":
-    live_cols = st.columns([3, 2])
-    with live_cols[0]:
-        st.subheader("Live Analysis Frame")
-        if preview_frame_path.exists():
-            st.image(str(preview_frame_path), use_container_width=True, caption=f"Annotated frame from {data.get('source_video', 'unknown')}")
-        else:
-            st.info("No analyzed frame is available yet. Run the detector to generate the live preview.")
-
-    with live_cols[1]:
-        render_key_value_block(
-            "Live Session Status",
-            [
-                ("Session ID", data.get("session_id")),
-                ("Session Started", data.get("session_started_at")),
-                ("Last Updated", data.get("last_updated_at")),
-                ("Session State", data_freshness),
-                ("Source Video", data.get("source_video")),
-                ("Frame Index", data.get("frame_index")),
-                ("Runtime (s)", data.get("runtime_seconds")),
-            ],
-        )
-        if output_video_path.exists():
-            st.caption(f"Processed video saved at: {output_video_path}")
-
-    live_metrics = st.columns(5)
-    live_metrics[0].metric("Players", format_value(summary.get("players_detected"), 0))
-    live_metrics[1].metric("Ball Speed", format_value(summary.get("ball_speed_px_per_sec"), 2, " px/s"))
-    live_metrics[2].metric("Swings", format_value(summary.get("active_swing_count"), 0))
-    live_metrics[3].metric("Impact Power", format_value(summary.get("impact_power_score"), 1))
-    live_metrics[4].metric("Advice", format_value(summary.get("recommendation_count"), 0))
-
-    if output_video_path.exists():
-        st.subheader("Latest Processed Match Video")
-        st.video(str(output_video_path))
-
-    notes = data.get("notes", [])
-    if notes:
-        st.subheader("Pipeline Notes")
-        for note in notes:
-            render_note(note)
-
-    if auto_refresh:
-        time.sleep(2)
-        st.rerun()
-    st.stop()
-
-preview_cols = st.columns([3, 2])
-with preview_cols[0]:
-    st.subheader("Live Analysis Frame")
+with live_cols[0]:
+    st.subheader("📸 Live Analysis Frame")
     if preview_frame_path.exists():
-        st.image(str(preview_frame_path), use_container_width=True, caption=f"Annotated frame from {data.get('source_video', 'unknown')}")
+        st.image(str(preview_frame_path), use_container_width=True,
+                 caption=f"Frame {data.get('frame_index', 0)} at {data.get('timestamp_seconds', 0)}s")
     else:
-        st.info("No analyzed frame is available yet. Run the detector to generate the live preview.")
+        st.warning("No preview frame found. Run the detector to generate it.")
+        st.info(f"Looking for: {preview_frame_path}")
 
-with preview_cols[1]:
+with live_cols[1]:
     render_key_value_block(
         "Live Session Status",
         [
             ("Session ID", data.get("session_id")),
             ("Session Started", data.get("session_started_at")),
             ("Last Updated", data.get("last_updated_at")),
-            ("Session State", data_freshness),
+            ("Status", data_freshness),
             ("Source Video", data.get("source_video")),
-            ("Frame Index", data.get("frame_index")),
-            ("Runtime (s)", data.get("runtime_seconds")),
+            ("Frame", data.get("frame_index")),
+            ("Runtime", format_value(data.get("runtime_seconds"), 1, " s")),
         ],
     )
     if output_video_path.exists():
-        st.caption(f"Processed video saved at: {output_video_path}")
+        st.video(str(output_video_path))
 
-metric_cols = st.columns(6)
-metric_cols[0].metric(
-    "Players",
-    format_value(summary.get("players_detected"), 0),
-    metric_delta(summary.get("players_detected"), previous_history.get("players_detected"), 0),
-)
-metric_cols[1].metric(
-    "Ball Speed",
-    format_value(summary.get("ball_speed_px_per_sec"), 2, " px/s"),
-    metric_delta(summary.get("ball_speed_px_per_sec"), previous_history.get("ball_speed_px_per_sec")),
-)
-metric_cols[2].metric(
-    "Posture",
-    format_value(summary.get("avg_posture_score"), 0),
-    metric_delta(summary.get("avg_posture_score"), previous_history.get("avg_posture_score")),
-)
-metric_cols[3].metric(
-    "Swings",
-    format_value(summary.get("active_swing_count"), 0),
-    metric_delta(summary.get("active_swing_count"), previous_history.get("active_swing_count"), 0),
-)
-metric_cols[4].metric(
-    "Impact Power",
-    format_value(summary.get("impact_power_score"), 1),
-    metric_delta(summary.get("impact_power_score"), previous_history.get("impact_power_score")),
-)
-metric_cols[5].metric(
-    "Advice",
-    format_value(summary.get("recommendation_count"), 0),
-    metric_delta(summary.get("recommendation_count"), previous_history.get("recommendation_count"), 0),
+# ============================================================================
+# TABS
+# ============================================================================
+
+overview_tab, motion_tab, recommendations_tab, review_tab, raw_tab = st.tabs(
+    ["📊 Overview", "📈 Motion", "💡 Recommendations", "🔍 Review Room", "📄 Raw Data"]
 )
 
-overview_tab, motion_tab, recommendations_tab, history_tab, review_tab, raw_tab = st.tabs(
-    ["Overview", "Motion", "Recommendations", "History", "🔍 Review Room", "Raw Data"]
-)
-clip_summary = data.get("clip_summary", {})
-
+# ---------------------------------------------------------------------------
 with overview_tab:
-    summary_cols = st.columns(3)
-
-    with summary_cols[0]:
-        render_key_value_block(
-            "Session Summary",
-            [
-                ("Status", data.get("status", "unknown")),
-                ("Phase", data.get("phase", "unknown")),
-                ("Sport", sport_profile.get("display_name", data.get("sport", "unknown"))),
-                ("Equipment", sport_profile.get("equipment_name", "unknown")),
-                ("Ball Type", sport_profile.get("ball_name", "unknown")),
-                ("Source Video", data.get("source_video", "unknown")),
-            ],
-        )
-
-    with summary_cols[1]:
-        render_key_value_block(
-            "Live Technique Snapshot",
-            [
-                ("Primary Player ID", events.get("primary_player_id")),
-                ("Players With Pose", pose_summary.get("players_with_pose", 0)),
-                ("Average Posture Score", pose_summary.get("avg_posture_score")),
-                ("Injury Risk Players", pose_summary.get("injury_risk_player_ids", [])),
-                ("Current Swing Phase", primary_event_state.get("swing_phase")),
-                ("Shot Candidate", primary_event_state.get("shot_label_candidate")),
-            ],
-        )
-        posture_score = primary_posture.get("posture_score")
-        if isinstance(posture_score, (int, float)):
-            st.progress(max(0.0, min(float(posture_score) / 100.0, 1.0)), text=f"Primary posture score: {posture_score}")
-
-    with summary_cols[2]:
-        render_key_value_block(
-            "Ball And Equipment Snapshot",
-            [
-                ("Ball Track Status", ball_tracking.get("status")),
-                ("Ball Track Active", ball_tracking.get("active")),
-                ("Trajectory Length", ball_tracking.get("trajectory_length")),
-                ("Latest Ball Center", ball_tracking.get("smoothed_center")),
-                ("Racket Track Active", summary.get("racket_track_active")),
-                ("Racket Path Length (px)", summary.get("racket_path_length_px")),
-                ("Racket Direction", primary_racket.get("swing_direction")),
-                ("Impact Power Score", summary.get("impact_power_score")),
-            ],
-        )
-
     st.subheader("Tracked Players")
     player_rows = player_table(players)
     if player_rows:
         st.dataframe(player_rows, use_container_width=True, hide_index=True)
     else:
-        st.info("No tracked players available yet.")
-
-with motion_tab:
-    motion_cols = st.columns(2)
-
-    with motion_cols[0]:
-        st.subheader("Ball Speed Trend")
-        speed_series = ball_speed.get("speed_series", [])
-        speed_values = [point.get("speed_px_per_sec") for point in speed_series if point.get("speed_px_per_sec") is not None]
-        if speed_values:
-            st.line_chart({"Ball speed (px/s)": speed_values}, use_container_width=True)
-        else:
-            st.info("Ball speed trend will appear once a tracked trajectory is available.")
-
-        st.write(
-            {
-                "current_speed_px_per_sec": ball_speed.get("current_speed"),
-                "avg_recent_speed_px_per_sec": ball_speed.get("avg_recent_speed_px_per_sec"),
-                "peak_speed_px_per_sec": ball_speed.get("peak_speed_px_per_sec"),
-                "contact_speed_comparison": ball_speed.get("contact_comparison"),
-            }
+        st.info("No tracked players available.")
+    
+    st.divider()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        render_key_value_block(
+            "Session Summary",
+            [
+                ("Status", data.get("status")),
+                ("Sport", sport_profile.get("display_name")),
+                ("Players with Pose", pose_summary.get("players_with_pose", 0)),
+                ("Avg Posture", pose_summary.get("avg_posture_score")),
+                ("Injury Risk Players", pose_summary.get("injury_risk_player_ids", [])),
+            ],
         )
-
-    with motion_cols[1]:
-        st.subheader("Session Progress")
-        posture_values = [row["avg_posture_score"] for row in history if row.get("avg_posture_score") is not None]
-        if posture_values:
-            st.line_chart({"Posture score": posture_values}, use_container_width=True)
-        else:
-            st.info("Posture trend will appear once pose data is matched to players.")
-
-        event_chart = {
-            "Swings": [row.get("active_swing_count", 0) for row in history],
-            "Contacts": [row.get("contact_candidate_count", 0) for row in history],
-            "Impact Power": [row.get("impact_power_score", 0) or 0 for row in history],
-            "Recommendations": [row.get("recommendation_count", 0) for row in history],
-        }
-        if history:
-            st.bar_chart(event_chart, use_container_width=True)
-
-    detail_cols = st.columns(2)
-    with detail_cols[0]:
-        st.subheader("Ball Tracking Detail")
-        st.write(
-            {
-                "status": ball_tracking.get("status"),
-                "missed_frames": ball_tracking.get("missed_frames"),
-                "raw_center": ball_tracking.get("raw_center"),
-                "smoothed_center": ball_tracking.get("smoothed_center"),
-                "latest_direction_change": ball_tracking.get("latest_direction_change"),
-            }
+    with col2:
+        render_key_value_block(
+            "Tracking",
+            [
+                ("Ball Track", "Active" if ball_tracking.get("active") else "Inactive"),
+                ("Trajectory Length", ball_tracking.get("trajectory_length")),
+                ("Racket Track", "Active" if summary.get("racket_track_active") else "Inactive"),
+                ("Racket Path", format_value(summary.get("racket_path_length_px"), 1, " px")),
+            ],
         )
-        recent_history = ball_tracking.get("history", [])[-8:]
-        if recent_history:
-            st.dataframe(recent_history, use_container_width=True, hide_index=True)
-
-    with detail_cols[1]:
-        st.subheader("Racket Motion Detail")
-        st.write(
-            {
-                "active_track_ids": racket.get("active_track_ids", []),
-                "latest_primary_state": racket.get("latest_primary_state"),
-                "recent_primary_path_points": len(racket.get("recent_primary_path", [])),
-            }
-        )
-        power_proxy = impact_power.get("contact_power_proxy")
-        if power_proxy:
-            render_key_value_block(
-                "Contact Power Proxy",
-                [
-                    ("Power Score", power_proxy.get("power_score")),
-                    ("Power Level", power_proxy.get("power_level")),
-                    ("Shot Label", power_proxy.get("shot_label")),
-                    ("Racket Speed (px/s)", power_proxy.get("racket_speed_px_per_sec")),
-                    ("Ball Speed Gain (px/s)", power_proxy.get("ball_speed_gain_px_per_sec")),
-                ],
-            )
-            st.caption(power_proxy.get("method"))
-            st.caption(power_proxy.get("limitations"))
-
-with recommendations_tab:
-    recommendation_cols = st.columns(2)
-
-    with recommendation_cols[0]:
-        st.subheader("Session Recommendations")
-        session_recommendations = recommendations.get("session_recommendations", [])
-        if session_recommendations:
-            for item in session_recommendations:
-                render_recommendation_card(item, clip_summary=clip_summary)
-        else:
-            st.success("No session-level recommendations yet.")
-
-    with recommendation_cols[1]:
-        st.subheader("Player Coaching Notes")
-        player_recommendations = recommendations.get("player_recommendations", {})
-        if player_recommendations:
-            for player_id, items in player_recommendations.items():
-                st.markdown(f"**Player {player_id}**")
-                for item in items:
-                    render_recommendation_card(item, clip_summary=clip_summary)
-        else:
-            st.success("No player-specific coaching notes yet.")
-
-    risk_cols = st.columns(2)
-    with risk_cols[0]:
-        st.subheader("Risk And Alert Summary")
-        risk_metric_cols = st.columns(2)
-        risk_metric_cols[0].metric("Injury Risk Flags", summary.get("injury_risk_count", 0))
-        risk_metric_cols[1].metric("Fall Alerts", summary.get("fall_alerts", 0))
-        st.write(
-            {
-                "players_with_pose": pose_summary.get("players_with_pose"),
-                "primary_posture_label": primary_posture.get("posture_label"),
-                "primary_risk_level": primary_posture.get("injury_risk_level"),
-            }
-        )
-        risk_flags = primary_posture.get("injury_risk_flags", [])
-        if risk_flags:
-            st.caption("Primary player risk flags")
-            for flag in risk_flags:
-                st.warning(flag)
-
-    with risk_cols[1]:
-        st.subheader("Recent Events")
-        event_rows = event_table(events.get("recent_events", []))
-        if event_rows:
-            st.dataframe(event_rows, use_container_width=True, hide_index=True)
-        else:
-            st.info("No recent events available yet.")
-
-with history_tab:
-    st.subheader("Runtime Session History")
-    st.caption("This in-app history buffer prepares the dashboard for future saved-session comparison.")
-
-    if history:
-        history_rows = [
-            {
-                "frame_index": row.get("frame_index"),
-                "timestamp_seconds": row.get("timestamp_seconds"),
-                "players_detected": row.get("players_detected"),
-                "ball_speed_px_per_sec": row.get("ball_speed_px_per_sec"),
-                "impact_power_score": row.get("impact_power_score"),
-                "avg_posture_score": row.get("avg_posture_score"),
-                "active_swing_count": row.get("active_swing_count"),
-                "contact_candidate_count": row.get("contact_candidate_count"),
-                "recommendation_count": row.get("recommendation_count"),
-                "injury_risk_count": row.get("injury_risk_count"),
-            }
-            for row in history
-        ]
-        st.dataframe(history_rows, use_container_width=True, hide_index=True)
-    else:
-        st.info("History will populate as new frames are processed.")
-
-    history_chart_cols = st.columns(2)
-    with history_chart_cols[0]:
-        posture_chart_values = [row.get("avg_posture_score") for row in history if row.get("avg_posture_score") is not None]
-        if posture_chart_values:
-            st.line_chart({"Posture score": posture_chart_values}, use_container_width=True)
-
-    with history_chart_cols[1]:
-        alert_chart = {
-            "Injury risk": [row.get("injury_risk_count", 0) for row in history],
-            "Impact power": [row.get("impact_power_score", 0) or 0 for row in history],
-            "Recommendations": [row.get("recommendation_count", 0) for row in history],
-        }
-        if history:
-            st.bar_chart(alert_chart, use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# Phase 4 – Review Room tab
+with motion_tab:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Ball Speed")
+        speed_series = ball_speed.get("speed_series", [])
+        if speed_series:
+            speed_values = [s.get("speed_px_per_sec", 0) for s in speed_series if s.get("speed_px_per_sec") is not None]
+            if speed_values:
+                st.line_chart({"Ball Speed (px/s)": speed_values}, use_container_width=True)
+        st.json({
+            "Current": ball_speed.get("current_speed"),
+            "Peak": ball_speed.get("peak_speed_px_per_sec"),
+            "Avg": ball_speed.get("avg_recent_speed_px_per_sec"),
+        })
+    with col2:
+        st.subheader("Recent Events")
+        recent_events = events.get("recent_events", [])
+        if recent_events:
+            st.dataframe(event_table(recent_events[-10:]), use_container_width=True, hide_index=True)
+        else:
+            st.info("No recent events.")
+
+# ---------------------------------------------------------------------------
+with recommendations_tab:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Session")
+        session_recs = recommendations.get("session_recommendations", [])
+        if session_recs:
+            for rec in session_recs:
+                render_recommendation_card(rec)
+        else:
+            st.success("No session recommendations.")
+    with col2:
+        st.subheader("Player Specific")
+        player_recs = recommendations.get("player_recommendations", {})
+        if player_recs:
+            for player_id, recs in player_recs.items():
+                st.markdown(f"**Player {player_id}**")
+                for rec in recs:
+                    render_recommendation_card(rec)
+        else:
+            st.success("No player recommendations.")
+
 # ---------------------------------------------------------------------------
 with review_tab:
     st.subheader("🔍 Review Room")
-    st.caption(
-        "Frames where any player's posture score dropped below the threshold, or injury risk was flagged, "
-        "are automatically saved here. Use these to review exact moments of poor form."
-    )
-
-    bad_frames: list[dict] = clip_summary.get("bad_frames", [])
-    snippet_index: dict = clip_summary.get("snippet_index", {})
-    snippet_count: int = clip_summary.get("snippet_count", 0)
-    bad_frame_count: int = clip_summary.get("bad_frame_count", 0)
-
-    review_metric_cols = st.columns(3)
-    review_metric_cols[0].metric("Flagged Frames", bad_frame_count)
-    review_metric_cols[1].metric("Metric Clips Saved", snippet_count)
-    review_metric_cols[2].metric("Clip Types", len(snippet_index))
-
+    st.caption("Frames with poor posture or injury risk are captured here.")
+    
+    bad_frames = clip_summary.get("bad_frames", [])
+    snippet_index = clip_summary.get("snippet_index", {})
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Flagged Frames", clip_summary.get("bad_frame_count", 0))
+    col2.metric("Video Clips", clip_summary.get("snippet_count", 0))
+    col3.metric("Metric Types", len(snippet_index))
+    
     st.divider()
-
-    # --- Flagged frame gallery ---
-    st.subheader("Flagged Frame Gallery")
+    
     if bad_frames:
-        # Show 3 images per row
-        COLS_PER_ROW = 3
-        for row_start in range(0, len(bad_frames), COLS_PER_ROW):
-            batch = bad_frames[row_start : row_start + COLS_PER_ROW]
-            cols = st.columns(COLS_PER_ROW)
-            for col, frame_record in zip(cols, batch):
-                frame_path = Path(frame_record.get("frame_path", ""))
-                reason = frame_record.get("reason", "Unknown reason")
-                timestamp = frame_record.get("timestamp", "-")
-                frame_idx = frame_record.get("frame_index", "-")
-                with col:
-                    if frame_path.exists():
-                        st.image(
-                            str(frame_path),
-                            caption=f"⏱ {timestamp}  |  Frame {frame_idx}",
-                            use_container_width=True,
-                        )
-                    else:
-                        st.warning("Frame file not found.")
-                    st.error(f"⚠ {reason}")
+        st.subheader("Flagged Frame Gallery")
+        
+        if "selected_frame" not in st.session_state:
+            st.session_state.selected_frame = None
+        
+        for frame_record in bad_frames[:12]:  # Show up to 12
+            frame_path = make_portable_path(frame_record.get("frame_path", ""))
+            reason = frame_record.get("reason", "Unknown")
+            timestamp = frame_record.get("timestamp", "-")
+            frame_idx = frame_record.get("frame_index", "-")
+            
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if frame_path.exists():
+                    st.image(str(frame_path), use_container_width=True)
+                else:
+                    st.warning(f"Missing: {frame_path.name}")
+            with col2:
+                st.caption(f"**Frame {frame_idx}** at {timestamp}")
+                st.error(reason[:150])
+                if st.button(f"▶ Play Clip", key=f"play_{frame_idx}"):
+                    st.session_state.selected_frame = frame_idx
+        
+        # Show selected clip
+        if st.session_state.selected_frame:
+            st.divider()
+            st.subheader(f"Clip for Frame {st.session_state.selected_frame}")
+            frame_str = str(st.session_state.selected_frame)
+            found_clip = None
+            for metric, clips in snippet_index.items():
+                for clip_path in clips:
+                    if frame_str in str(clip_path):
+                        found_clip = make_portable_path(clip_path)
+                        break
+                if found_clip:
+                    break
+            if found_clip and found_clip.exists():
+                st.video(str(found_clip))
     else:
-        st.success("No flagged frames yet. Good form so far, or the session has not started.")
-
+        st.success("✅ No flagged frames yet.")
+    
     st.divider()
-
-    # --- Metric snippet video player ---
+    
     st.subheader("Metric Clip Viewer")
-    st.caption("Select a metric type below to play the saved video clip for that event.")
     if snippet_index:
         selected_metric = st.selectbox(
-            "Choose a metric clip to play",
+            "Select metric type",
             options=list(snippet_index.keys()),
-            format_func=lambda k: k.replace("_", " ").title(),
-            key="review_room_metric_select",
+            format_func=lambda x: x.replace("_", " ").title(),
         )
-        clips_for_metric = snippet_index.get(selected_metric, [])
-        if clips_for_metric:
-            for idx, clip_path in enumerate(clips_for_metric, start=1):
-                p = Path(clip_path)
-                st.caption(f"Clip {idx} — {p.name}")
-                if p.exists():
-                    st.video(str(p))
-                else:
-                    st.warning(f"Clip file missing: {p.name}")
-        else:
-            st.info("No clips saved for this metric yet.")
+        for clip_path in snippet_index.get(selected_metric, []):
+            clip = make_portable_path(clip_path)
+            if clip.exists():
+                st.video(str(clip))
+            else:
+                st.warning(f"Missing: {clip.name}")
     else:
-        st.info("No metric clips have been saved yet. Run the detector to generate them.")
+        st.info("No video clips available.")
 
+# ---------------------------------------------------------------------------
 with raw_tab:
-    raw_cols = st.columns(2)
-
-    with raw_cols[0]:
-        st.subheader("Primary Player Detail")
-        if primary:
-            st.json(primary)
-        else:
-            st.info("No primary player available yet.")
-
-    with raw_cols[1]:
-        st.subheader("Impact And Recommendation Snapshot")
-        st.json(
-            {
-                "impact_power": impact_power,
-                "recommendations": recommendations,
-            }
-        )
-
-    if output_video_path.exists():
-        st.subheader("Processed Match Video")
-        st.video(str(output_video_path))
-
-    st.subheader("Current Payload")
+    st.subheader("Complete Analytics Data")
     st.json(data)
 
-notes = data.get("notes", [])
+# ---------------------------------------------------------------------------
 if notes:
     st.subheader("Pipeline Notes")
     for note in notes:
