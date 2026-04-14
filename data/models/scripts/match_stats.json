@@ -3238,64 +3238,64 @@
   "clip_summary": {
     "snippet_index": {
       "contact_candidate": [
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__contact_candidate__1776152762039.mp4",
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__contact_candidate__1776152775110.mp4"
+        "snippets/tennis-1776152758__contact_candidate__1776152762039.mp4",
+        "snippets/tennis-1776152758__contact_candidate__1776152775110.mp4"
       ],
       "injury_risk_player_1": [
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__injury_risk_player_1__1776152763651.mp4",
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__injury_risk_player_1__1776152777025.mp4",
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__injury_risk_player_1__1776152791910.mp4"
+        "snippets/tennis-1776152758__injury_risk_player_1__1776152763651.mp4",
+        "snippets/tennis-1776152758__injury_risk_player_1__1776152777025.mp4",
+        "snippets/tennis-1776152758__injury_risk_player_1__1776152791910.mp4"
       ],
       "injury_risk_player_6": [
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__injury_risk_player_6__1776152768716.mp4"
+        "snippets/tennis-1776152758__injury_risk_player_6__1776152768716.mp4"
       ],
       "injury_risk_player_2": [
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__injury_risk_player_2__1776152779475.mp4"
+        "snippets/tennis-1776152758__injury_risk_player_2__1776152779475.mp4"
       ],
       "injury_risk_player_14": [
-        "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\snippets\\tennis-1776152758__injury_risk_player_14__1776152800922.mp4"
+        "snippets/tennis-1776152758__injury_risk_player_14__1776152800922.mp4"
       ]
     },
     "snippet_count": 8,
     "bad_frames": [
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000117__Low_Posture_Score_(59)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000117__Low_Posture_Score_(59)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (59) \u2013 Player 1",
         "timestamp": "4.68s",
         "frame_index": 117
       },
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000125__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000125__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.00s",
         "frame_index": 125
       },
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000126__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000126__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.04s",
         "frame_index": 126
       },
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000127__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000127__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.08s",
         "frame_index": 127
       },
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000129__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000129__Low_Posture_Score_(58)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (58) \u2013 Player 1",
         "timestamp": "5.16s",
         "frame_index": 129
       },
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000192__Low_Posture_Score_(49)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000192__Low_Posture_Score_(49)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (49) \u2013 Player 1",
         "timestamp": "7.68s",
         "frame_index": 192
       },
       {
-        "frame_path": "C:\\Users\\Asifa Bandulal Beed\\Downloads\\sports cctv analysis\\data\\review_frames\\tennis-1776152758__000200__Low_Posture_Score_(41)_\u2013_Player_1.jpg",
+        "frame_path": "review_frames/tennis-1776152758__000200__Low_Posture_Score_(41)_\u2013_Player_1.jpg",
         "reason": "Low Posture Score (41) \u2013 Player 1",
         "timestamp": "8.00s",
         "frame_index": 200
