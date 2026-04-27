@@ -1,172 +1,203 @@
 # Sports CCTV Analysis
 
-A sport-agnostic computer vision pipeline for player tracking, ball tracking, pose estimation, posture analysis, event detection, equipment motion analysis, coaching recommendations, and dashboard-based monitoring.
+Sports CCTV Analysis is a multi-sport computer-vision project for recorded video and live capture. It combines a shared analytics pipeline with sport-specific event logic and a Streamlit dashboard for launch, monitoring, and review.
 
-The current demo profile is **tennis**, but the core has been structured so other sports can plug into the same pipeline. Supported sport profiles in the current codebase are:
+## What Works Today
+
+- session-based analysis outputs under `data/outputs/sessions/<session_id>/`
+- source types: `file`, `demo`, `webcam`, `rtsp`
+- dashboard launch, stop, live monitor, and session browsing
+- baseline analytics across `tennis`, `cricket`, `baseball`, `hockey`, and `volleyball`
+- an early `basketball` preview lane for ball-handler, dribble, possession-window, and shot-attempt cues
+
+The strongest current demo is still `tennis`, while `basketball` remains a clearly marked preview path rather than a mature engine.
+
+## Project Layout
+
+- `app/streamlit_app.py`: Streamlit dashboard
+- `src/main_pipeline.py`: CLI entry point
+- `src/sports_analytics/`: shared analytics core and sport-specific logic
+- `src/detection/`, `src/tracking/`, `src/biomechanics/`: cleaned module boundaries for the next racket-sport work
+- `data/videos/`: source/demo videos
+- `models/`: model weights
+- `data/outputs/sessions/`: per-session outputs
+- `tools/smoke_test.py`: startup and short-run validation
+- `tools/validate_session_payload.py`: payload structure validation
+- `SPORT_SUPPORT.md`: truthful current support matrix
+- `PERFORMANCE_NOTES.md`: CPU/GPU and demo-readiness notes
+
+## Requirements
+
+- Python 3.10+
+- Windows PowerShell or another terminal that can run Python
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Quick Start
+
+Run a short smoke test:
+
+```bash
+python tools/smoke_test.py --sport tennis --max-frames 1
+```
+
+Start the dashboard:
+
+```bash
+python -m streamlit run app/streamlit_app.py
+```
+
+Open the dashboard and use:
+
+- `Launch` to start uploaded, local, demo, webcam, or RTSP analysis
+- `Live` to follow the active session and live job status
+- `Dashboard` to inspect saved analytics, events, notes, and artifacts
+
+## CLI Usage
+
+Basic form:
+
+```bash
+python src/main_pipeline.py --sport <sport> --source-type <source_type> --no-display
+```
+
+Supported sports:
 
 - `tennis`
 - `cricket`
 - `baseball`
 - `hockey`
+- `volleyball`
+- `basketball`
 
-## Project Status
+Supported source types:
 
-All planned build phases in the implementation checklist are complete:
+- `file`
+- `demo`
+- `webcam`
+- `rtsp`
 
-- Phase 1: Foundation and refactor
-- Phase 2: Ball tracking
-- Phase 3: Pose estimation and joint angles
-- Phase 4: Posture analysis and injury risk
-- Phase 5: Tennis event detection
-- Phase 6: Racket tracking and swing path
-- Phase 7: Ball speed estimation
-- Phase 8: Recommendation engine
-- Phase 9: Advanced dashboard
+Examples:
 
-## What The System Does
-
-The pipeline can currently:
-
-- detect and track players
-- detect and track the ball with short-term recovery and smoothing
-- run pose estimation on tracked players
-- compute joint-angle and posture metrics
-- generate posture and injury-risk signals
-- detect tennis-style swing/contact events
-- estimate racket-side motion using a racket proxy
-- estimate ball speed from trajectory
-- produce rule-based coaching recommendations
-- write structured analytics JSON for the dashboard
-
-## Architecture
-
-Core package: [sports_analytics](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics)
-
-Main modules:
-
-- [config.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/config.py)
-- [pipeline.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/pipeline.py)
-- [profiles.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/profiles.py)
-- [pose.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/pose.py)
-- [posture.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/posture.py)
-- [events.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/events.py)
-- [racket.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/racket.py)
-- [ball_speed.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/ball_speed.py)
-- [recommendations.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/recommendations.py)
-- [session_io.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/sports_analytics/session_io.py)
-
-Entry points:
-
-- Detector CLI: [detects_players.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/data/models/scripts/detects_players.py)
-- Dashboard: [dashboard.py](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/dashboard.py)
-
-## Folder Notes
-
-- `data/models/scripts/` contains the demo videos and YOLO model files.
-- `match_stats.json` is the main structured analytics output used by the dashboard.
-- `data/models/scripts/match_stats.json` is a mirrored legacy path kept in sync for compatibility.
-- `IMPLEMENTATION_CHECKLIST.md` tracks the project roadmap and completion state.
-
-## Requirements
-
-Recommended environment:
-
-- Python 3.10+
-- Windows PowerShell or any terminal that can run Python
-
-Expected Python packages:
+Run the bundled tennis demo:
 
 ```bash
-pip install ultralytics opencv-python streamlit numpy
+python src/main_pipeline.py --sport tennis --source-type demo --no-display --writer-codec mp4v
 ```
 
-If your local setup already has these packages, you do not need to reinstall them.
-
-## How To Run
-
-Open two terminals in the project root.
-
-Terminal 1: run the analytics pipeline
+Run a local file:
 
 ```bash
-python data/models/scripts/detects_players.py --sport tennis --video data/models/scripts/tennis.mp4
+python src/main_pipeline.py --sport cricket --source-type file --source data/videos/cricket.mp4 --no-display
 ```
 
-Terminal 2: run the dashboard
+Run a webcam:
 
 ```bash
-streamlit run dashboard.py
+python src/main_pipeline.py --sport tennis --source-type webcam --source 0 --no-display
 ```
 
-The detector writes live session output to `match_stats.json`, and the dashboard refreshes from that file.
-
-## Useful CLI Examples
-
-Run tennis in headless mode:
+Run an RTSP stream:
 
 ```bash
-python data/models/scripts/detects_players.py --sport tennis --video data/models/scripts/tennis.mp4 --no-display
+python src/main_pipeline.py --sport hockey --source-type rtsp --source rtsp://user:pass@camera/stream --no-display
 ```
 
-Quick validation run:
+Short validation run:
 
 ```bash
-python data/models/scripts/detects_players.py --sport tennis --video data/models/scripts/tennis.mp4 --no-display --max-frames 20
+python src/main_pipeline.py --sport baseball --source-type demo --no-display --no-output-video --writer-codec mp4v --max-frames 5
 ```
 
-Switch sport profile while keeping the same shared core:
+## Output Structure
+
+Each run creates a session folder like:
+
+```text
+data/outputs/sessions/tennis-20260422-145530/
+```
+
+Each session contains:
+
+- `stats.json`
+- `preview.jpg`
+- `output.mp4`
+- `snippets/`
+- `review_frames/`
+
+The latest session still mirrors to the legacy dashboard paths for compatibility:
+
+- `outputs/match_stats.json`
+
+## Validation
+
+Validate the latest saved session payload:
 
 ```bash
-python data/models/scripts/detects_players.py --sport cricket --video data/models/scripts/football.mp4 --no-display
-python data/models/scripts/detects_players.py --sport baseball --video data/models/scripts/sports.mp4 --no-display
-python data/models/scripts/detects_players.py --sport hockey --video data/models/scripts/hockey.mp4 --no-display
+python tools/validate_session_payload.py --latest --sport tennis
 ```
 
-Optional calibration for real-world ball-speed conversion:
+Validate every supported sport with a short run:
 
 ```bash
-python data/models/scripts/detects_players.py --sport tennis --video data/models/scripts/tennis.mp4 --ball-meters-per-pixel 0.01
+python tools/smoke_test.py --all-sports --max-frames 1
 ```
 
-## Dashboard Highlights
+## Demo Helper
 
-The dashboard now includes:
+For Windows/PowerShell, use the helper script:
 
-- sidebar session status and sport profile
-- top-level live metrics
-- overview tab for session summary and tracked players
-- motion tab for speed and progress charts
-- recommendations tab for coaching output and risk summaries
-- history tab for lightweight in-app session history
-- raw data tab for inspection and debugging
+Run a smoke check:
 
-## Sport-Agnostic Design
+```powershell
+.\demo_run.ps1 -Mode smoke -Sport tennis
+```
 
-The project is intentionally split into two layers:
+Run a short demo pass and then open the dashboard:
 
-- shared analytics core
-- sport-specific profile logic
+```powershell
+.\demo_run.ps1 -Mode demo -Sport cricket -MaxFrames 60
+```
 
-That means detection, tracking, pose handling, structured output, and dashboarding are reusable, while sport interpretation can change by profile. Tennis is the current demo, but the system structure is ready for future cricket, baseball, and hockey logic expansions.
+Open only the dashboard:
 
-## Current Limitations
+```powershell
+.\demo_run.ps1 -Mode dashboard -Port 8501
+```
 
-- Tennis is the strongest demo profile today.
-- Generic YOLO detection does not guarantee equally strong equipment or ball performance across every sport.
-- Hockey puck tracking is expected to be weaker than larger ball-based sports.
-- Racket tracking is currently a pose-driven proxy, not a custom trained racket detector.
-- Many sport-specific event rules are still heuristic rather than learned from labeled data.
+## Current Support Notes
 
-## Suggested Demo Flow
+See [SPORT_SUPPORT.md](SPORT_SUPPORT.md) for the truthful sport-by-sport support matrix.
 
-Use the companion guide here:
+Short version:
 
-- [PRESENTATION_FLOW.md](/c:/Users/Asifa%20Bandulal%20Beed/Downloads/sports%20cctv%20analysis/PRESENTATION_FLOW.md)
+- `tennis`: strongest demo lane, best current sport-specific quality
+- `cricket`: basic bat and stroke heuristics are active
+- `baseball`: basic pitch, swing, and bat-contact heuristics are active
+- `hockey`: baseline plus hockey-specific puck/stick heuristics, but most sensitive to tracking quality
+- `volleyball`: basic serve, set, spike, block, and dig heuristics are active
+- `basketball`: preview-only lane for dribble, pass, drive, rebound, possession-window, and shot-attempt cues
 
-## Next Improvements
+## Performance and Demo Readiness
 
-- add a `requirements.txt`
-- save completed sessions for historical comparison across runs
-- train sport-specific ball and equipment detectors
-- strengthen cricket, baseball, and hockey event logic
-- calibrate real-world speed using court or field geometry
+See [PERFORMANCE_NOTES.md](PERFORMANCE_NOTES.md).
+
+Short version:
+
+- CPU-only is fine for smoke tests and short recordings
+- GPU is better for longer sessions and live capture
+- demo assets can behave differently across machines because of codec support
+- browser playback works best with the default codec order; use `--writer-codec mp4v` and `--no-output-video` only when you want the faster validation path
+- live mode is much stronger now, but still deserves a manual browser-level check before a presentation
+
+## Known Limits
+
+- Sport-specific logic is still heuristic-heavy rather than trained on labeled datasets.
+- Hockey remains the hardest lane because puck tracking is a small-object problem.
+- Basketball is still a preview lane and does not yet have possession-grade team reasoning.
+- Detached background jobs are much more observable now, but still should be sanity-checked on the actual demo machine.
+- Video-level accuracy across all sports still benefits from manual review in the dashboard.
