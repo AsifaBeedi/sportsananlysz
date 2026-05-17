@@ -1,0 +1,12 @@
+{
+  "include": [
+    "src",
+    "streamlit_app.py",
+    "app"
+  ],
+  "extraPaths": [
+    "./src"
+  ],
+  "venvPath": ".",
+  "reportMissingImports": true
+}

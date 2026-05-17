@@ -8,12 +8,21 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUN_CONTROL_DIR = PROJECT_ROOT / "data" / "run_control"
 JOB_STATE_PATH = RUN_CONTROL_DIR / "analysis_job.json"
 JOB_LOG_PATH = RUN_CONTROL_DIR / "analysis_job.log"
+JOB_FAILURE_MARKERS = (
+    "traceback (most recent call last):",
+    "can't open file",
+    "filenotfounderror",
+    "modulenotfounderror",
+    "valueerror:",
+    "runtimeerror:",
+)
 
 
 def build_analysis_command(
@@ -30,7 +39,8 @@ def build_analysis_command(
 ) -> list[str]:
     command = [
         python_executable or sys.executable,
-        "src/main_pipeline.py",
+        "-m",
+        "sports_analytics.pipeline",
         "--sport",
         sport,
         "--source-type",
@@ -64,6 +74,8 @@ def launch_analysis_process(
     cwd: str | Path | None = None,
     extra_args: list[str] | None = None,
 ) -> dict[str, Any]:
+    _retire_existing_job()
+
     command = build_analysis_command(
         source_value,
         sport,
@@ -74,12 +86,22 @@ def launch_analysis_process(
         camera_role=camera_role,
         extra_args=extra_args,
     )
+    launch_time = iso_now()
+    job_id = uuid4().hex
     job_log_path = JOB_LOG_PATH
     job_log_path.parent.mkdir(parents=True, exist_ok=True)
     command_text = subprocess.list2cmdline(command)
-    job_log_path.write_text(f"[{iso_now()}] Launching command: {command_text}\n", encoding="utf-8")
+    job_log_path.write_text(
+        f"[{launch_time}] Launching job {job_id}: {command_text}\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    src_dir = str(PROJECT_ROOT / "src")
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = src_dir if not existing_pythonpath else os.pathsep.join([src_dir, existing_pythonpath])
     popen_kwargs: dict[str, Any] = {
         "cwd": str(cwd or Path.cwd()),
+        "env": env,
     }
     log_handle = job_log_path.open("a", encoding="utf-8")
     popen_kwargs["stdout"] = log_handle
@@ -94,6 +116,7 @@ def launch_analysis_process(
         log_handle.close()
 
     job = {
+        "job_id": job_id,
         "pid": process.pid,
         "sport": sport,
         "source_type": source_type,
@@ -104,7 +127,7 @@ def launch_analysis_process(
         "camera_role": camera_role,
         "command": command,
         "command_text": command_text,
-        "launched_at": iso_now(),
+        "launched_at": launch_time,
         "status": "running",
         "log_path": str(job_log_path),
     }
@@ -183,7 +206,14 @@ def refresh_job_state(job: dict[str, Any] | None, path: Path = JOB_STATE_PATH) -
 
     refreshed = dict(job)
     pid = refreshed.get("pid")
-    if is_process_running(pid):
+    log_path = refreshed.get("log_path")
+
+    # Check the job log before trusting the PID because Windows can recycle
+    # process IDs, which makes an unrelated process look like our analysis job.
+    if _job_log_indicates_failure(log_path):
+        refreshed["status"] = "failed"
+        refreshed["completed_at"] = refreshed.get("completed_at") or iso_now()
+    elif is_process_running(pid):
         refreshed["status"] = "running"
     elif refreshed.get("status") == "failed":
         refreshed["completed_at"] = refreshed.get("completed_at") or iso_now()
@@ -208,6 +238,19 @@ def stop_active_job(path: Path = JOB_STATE_PATH) -> dict[str, Any] | None:
     refreshed["stopped_at"] = iso_now()
     save_job_state(refreshed, path=path)
     return refreshed
+
+
+def _retire_existing_job(path: Path = JOB_STATE_PATH) -> None:
+    existing_job = refresh_job_state(load_job_state(path=path), path=path)
+    if existing_job is None:
+        clear_job_state(path=path)
+        return
+
+    if existing_job.get("status") == "running":
+        stop_active_job(path=path)
+        existing_job = refresh_job_state(load_job_state(path=path), path=path)
+
+    clear_job_state(path=path)
 
 
 def iso_now() -> str:
@@ -260,6 +303,13 @@ def read_job_log_info(path: str | Path | None) -> dict[str, Any]:
         "age_seconds": max(0.0, round((datetime.now() - last_updated).total_seconds(), 2)),
         "last_line": lines[-1] if lines else "",
     }
+
+
+def _job_log_indicates_failure(path: str | Path | None) -> bool:
+    log_tail = read_job_log_tail(path, max_lines=40).lower()
+    if not log_tail:
+        return False
+    return any(marker in log_tail for marker in JOB_FAILURE_MARKERS)
 
 
 def terminate_process_windows(pid: int) -> bool:

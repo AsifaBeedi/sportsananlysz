@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import datetime
@@ -404,7 +405,10 @@ def get_display_video(data: dict[str, Any]) -> tuple[Path | None, str]:
 
 
 def find_stats_file(
-    selected_session_id: str | None = None, session_records: list[dict[str, Any]] | None = None
+    selected_session_id: str | None = None,
+    session_records: list[dict[str, Any]] | None = None,
+    *,
+    allow_legacy_fallback: bool = True,
 ) -> Path | None:
     if session_records is None:
         session_records = discover_session_records()
@@ -421,14 +425,15 @@ def find_stats_file(
         if latest_stats_path is not None:
             return latest_stats_path
 
-    for path in (
-        Path("outputs/match_stats.json"),
-        Path("match_stats.json"),
-        Path("data/match_stats.json"),
-        Path("data/models/scripts/match_stats.json"),
-    ):
-        if path.exists():
-            return path
+    if allow_legacy_fallback:
+        for path in (
+            Path("outputs/match_stats.json"),
+            Path("match_stats.json"),
+            Path("data/match_stats.json"),
+            Path("data/models/scripts/match_stats.json"),
+        ):
+            if path.exists():
+                return path
     return None
 
 
@@ -618,10 +623,17 @@ def default_payload() -> dict[str, Any]:
 
 
 def load_stats(
-    selected_session_id: str | None = None, session_records: list[dict[str, Any]] | None = None
+    selected_session_id: str | None = None,
+    session_records: list[dict[str, Any]] | None = None,
+    *,
+    allow_legacy_fallback: bool = True,
 ) -> dict[str, Any]:
     defaults = default_payload()
-    stats_path = find_stats_file(selected_session_id=selected_session_id, session_records=session_records)
+    stats_path = find_stats_file(
+        selected_session_id=selected_session_id,
+        session_records=session_records,
+        allow_legacy_fallback=allow_legacy_fallback,
+    )
     if not stats_path:
         return defaults
 
@@ -861,9 +873,16 @@ def event_table(recent_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def save_uploaded_video(uploaded_file: Any) -> Path:
+def save_uploaded_video(uploaded_file: Any, custom_name: str | None = None) -> Path:
     uploads_dir = Path("data/videos")
     uploads_dir.mkdir(parents=True, exist_ok=True)
-    target_path = uploads_dir / Path(uploaded_file.name).name
-    target_path.write_bytes(uploaded_file.getbuffer())
+    original_name = Path(custom_name or getattr(uploaded_file, "name", "upload.mp4")).name
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name).strip("._") or "upload.mp4"
+    payload = bytes(uploaded_file.getbuffer())
+    digest = hashlib.sha1(payload).hexdigest()[:12]
+    source_path = Path(safe_name)
+    target_name = f"{source_path.stem}_{digest}{source_path.suffix.lower() or '.mp4'}"
+    target_path = uploads_dir / target_name
+    if not target_path.exists():
+        target_path.write_bytes(payload)
     return target_path

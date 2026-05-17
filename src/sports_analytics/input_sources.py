@@ -23,6 +23,11 @@ class ResolvedInputSource:
     metadata: dict[str, Any]
 
     def open_capture(self) -> cv2.VideoCapture:
+        # Use DirectShow only for live webcams on Windows. File/demo/RTSP
+        # inputs should use OpenCV's default backend selection so uploaded
+        # videos are decoded correctly.
+        if self.source_type == "webcam":
+            return cv2.VideoCapture(self.open_target, cv2.CAP_DSHOW)
         return cv2.VideoCapture(self.open_target)
 
 
@@ -169,6 +174,7 @@ def supports_multi_frame_decode(path: Path, *, required_frames: int = 2) -> bool
             ret, _ = cap.read()
             if not ret:
                 break
+            
             decoded_frames += 1
     finally:
         cap.release()

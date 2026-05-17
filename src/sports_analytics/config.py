@@ -78,6 +78,7 @@ class AppConfig:
     ball_smoothing_window: int = 5
     ball_history_size: int = 60
     ball_meters_per_pixel: float | None = None
+    frame_stride: int = 4
     stats_write_interval_frames: int = 3
     preview_write_interval_frames: int = 3
     write_output_video: bool = True

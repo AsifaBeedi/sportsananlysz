@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pyttsx3
+import argparse
 import os
 import time
 from datetime import datetime
@@ -11,9 +13,10 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+
 from .ball_speed import BallSpeedEstimator
 from .baseline import build_baseline_output
-from .config import AppConfig, build_session_id
+from .config import AppConfig, DEFAULT_MODEL_PATH, DEFAULT_POSE_MODEL_PATH, build_session_id
 from .events import EventEngine, default_event_summary
 from .impact_power import ImpactPowerEstimator
 from .input_sources import resolve_input_source
@@ -24,7 +27,15 @@ from .racket import RacketTracker
 from .recommendations import generate_recommendations
 from .clip_manager import ClipManager
 from .session_io import SessionWriter
-
+from .shot_classifier import ShotClassifier
+from .intent_detector import IntentDetector
+from .sequence_analyzer import SequenceAnalyzer
+from .opponent_model import OpponentModel
+from biomechanics.kinetic_chain import KineticChainAnalyzer
+from biomechanics.timing_analysis import TimingAnalyzer
+from biomechanics.balance_analysis import BalanceAnalyzer
+from biomechanics.contact_analysis import ContactAnalyzer
+from sports_analytics.pose import extract_pose_detections
 
 PERSON_CLASS_ID = 0
 BALL_CLASS_ID = 32
@@ -207,9 +218,33 @@ class SportsAnalyticsPipeline:
         self.hockey_puck_detector: HockeyPuckDetector | None = (
             HockeyPuckDetector() if config.sport == "hockey" else None
         )
+        # Advanced AI modules
+        self.shot_classifier = ShotClassifier()
+        self.intent_detector = IntentDetector()
+        self.sequence_analyzer = SequenceAnalyzer()
+        self.opponent_model = OpponentModel()
+        # Biomechanics analyzers
+        self.kinematic_analyzer = KineticChainAnalyzer()
+        self.timing_analyzer = TimingAnalyzer()
+        self.balance_analyzer = BalanceAnalyzer()
+        self.contact_analyzer = ContactAnalyzer()
+        self.voice_engine = pyttsx3.init()
+        self.voice_engine.setProperty("rate", 165)
+
+        self.announced_alert_keys: set[str] = set()
+    def speak_alert(self, text, alert_key: str | None = None):
+        key = alert_key or text
+        if key in self.announced_alert_keys:
+            return
+
+        self.announced_alert_keys.add(key)
+        for _ in range(3):
+            self.voice_engine.say(text)
+        self.voice_engine.runAndWait()
 
     def process_frame(self, frame: np.ndarray, frame_index: int, fps: float) -> FrameResult:
         frame = ensure_bgr_frame(frame)
+        frame = cv2.resize(frame,(640,360))
         results = self.model.predict(
             frame,
             classes=list(self.config.tracked_classes),
@@ -221,10 +256,27 @@ class SportsAnalyticsPipeline:
             conf=self.config.pose_detection_confidence,
             verbose=False,
         )
-
         annotated_frame = frame.copy()
+
+        ball_position = None
+        ball_bbox = None
         player_detections: list[dict[str, Any]] = []
         ball_detections: list[dict[str, Any]] = []
+        joints: dict[str, Any] = {}
+
+        if pose_results and len(pose_results) > 0 and getattr(pose_results[0], "keypoints", None) is not None:
+            keypoints_xy = pose_results[0].keypoints.xy
+            if keypoints_xy is not None:
+                keypoints = keypoints_xy.cpu().numpy()
+                if len(keypoints) > 0 and len(keypoints[0]) > 16:
+                    person = keypoints[0]
+                    joints = {
+                        "hip": person[11],
+                        "shoulder": person[5],
+                        "knee": person[13],
+                        "left_foot": person[15],
+                        "right_foot": person[16],
+                    }
 
         if results and results[0].boxes is not None:
             boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -239,6 +291,8 @@ class SportsAnalyticsPipeline:
                 center_y = int((y1 + y2) / 2)
 
                 if cls == BALL_CLASS_ID:
+                    ball_bbox = [x1, y1, x2, y2]
+                    ball_position = (center_x, center_y)
                     ball_detections.append(
                         {
                             "bbox": [x1, y1, x2, y2],
@@ -265,6 +319,7 @@ class SportsAnalyticsPipeline:
         )
         players = self._build_tracked_players(player_detections, annotated_frame, frame_index)
         players, pose_summary = self._attach_pose_data(players, pose_detections, annotated_frame)
+
         if not ball_detections and self.hockey_puck_detector is not None:
             puck_detection = self.hockey_puck_detector.detect(
                 frame, player_detections, self.ball_last_center
@@ -292,7 +347,9 @@ class SportsAnalyticsPipeline:
         )
         players, racket_summary = self.racket_tracker.update(players, event_summary, annotated_frame, frame_index)
         speed_summary = self.ball_speed_estimator.update(ball_tracking, event_summary, fps)
-        impact_power_summary = self.impact_power_estimator.update(racket_summary, speed_summary, event_summary, fps)
+        impact_power_summary = self.impact_power_estimator.update(
+            racket_summary, speed_summary, event_summary, fps
+        )
         recommendations = generate_recommendations(
             players,
             event_summary,
@@ -300,6 +357,55 @@ class SportsAnalyticsPipeline:
             speed_summary,
             self.config.sport,
         )
+        biomechanics = {
+            "kinematic_chain": None,
+            "timing": None,
+            "balance": None,
+            "contact": None,
+        }
+
+        try:
+            if joints:
+                balance = self.balance_analyzer.analyze(joints)
+                kinetic = self.kinematic_analyzer.analyze(joints)
+                biomechanics["balance"] = balance or None
+                biomechanics["kinematic_chain"] = kinetic or None
+
+            if players:
+                primary_player = players[0]
+                racket_state = primary_player.get("racket") or {}
+                handle_point = racket_state.get("handle_point")
+                tip_point = racket_state.get("tip_point")
+                racket_position = None
+                racket_bbox = None
+
+                if handle_point is not None and tip_point is not None:
+                    racket_position = (
+                        int(round((handle_point[0] + tip_point[0]) / 2)),
+                        int(round((handle_point[1] + tip_point[1]) / 2)),
+                    )
+                    racket_bbox = [
+                        min(handle_point[0], tip_point[0]),
+                        min(handle_point[1], tip_point[1]),
+                        max(handle_point[0], tip_point[0]),
+                        max(handle_point[1], tip_point[1]),
+                    ]
+
+                if ball_position and racket_position:
+                    biomechanics["timing"] = self.timing_analyzer.analyze(
+                        frame_index,
+                        ball_position,
+                        racket_position,
+                    )
+
+                tracked_ball_bbox = ball_tracking.get("bbox") or ball_bbox
+                if tracked_ball_bbox and racket_bbox:
+                    biomechanics["contact"] = self.contact_analyzer.analyze(
+                        tracked_ball_bbox,
+                        racket_bbox,
+                    )
+        except Exception as e:
+            biomechanics["error"] = str(e)
         payload = self._build_payload(
             frame,
             frame_index,
@@ -313,9 +419,12 @@ class SportsAnalyticsPipeline:
             racket_summary,
             speed_summary,
             impact_power_summary,
+            biomechanics,
             recommendations,
         )
-        return FrameResult(annotated_frame=annotated_frame, payload=payload)
+        return FrameResult(
+            annotated_frame=annotated_frame, payload=payload
+        )
 
     def _build_tracked_players(
         self,
@@ -352,7 +461,10 @@ class SportsAnalyticsPipeline:
                     "bbox": [x1, y1, x2, y2],
                     "center": [center_x, center_y],
                     "speed_px": speed_px,
+                    "bbox_aspect_ratio": round(width / max(height, 1), 2),
                     "fall_candidate": fall_candidate,
+                    "fall_detected": False,
+                    "fall_confidence": 0,
                     "trail_length": len(trail),
                     "pose": None,
                     "event_state": None,
@@ -369,7 +481,6 @@ class SportsAnalyticsPipeline:
                 (255, 0, 0),
                 2,
             )
-
             if speed_px is not None:
                 cv2.putText(
                     annotated_frame,
@@ -379,17 +490,6 @@ class SportsAnalyticsPipeline:
                     0.5,
                     (0, 255, 0),
                     2,
-                )
-
-            if fall_candidate:
-                cv2.putText(
-                    annotated_frame,
-                    "FALL DETECTED",
-                    (x1, y1 - 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    3,
                 )
 
             for j in range(1, len(trail)):
@@ -402,7 +502,6 @@ class SportsAnalyticsPipeline:
                 )
 
         return players
-
     def _attach_pose_data(
         self,
         players: list[dict[str, Any]],
@@ -428,6 +527,10 @@ class SportsAnalyticsPipeline:
             posture_scores.append(posture_analysis["posture_score"])
             if posture_analysis["injury_risk_flags"]:
                 risk_flagged_player_ids.append(player["track_id"])
+                self.speak_alert(
+                    "Warning injury risk detected.",
+                    alert_key="injury-risk-detected",
+                )
 
             player["pose"] = {
                 "confidence": pose_detection["confidence"],
@@ -438,6 +541,45 @@ class SportsAnalyticsPipeline:
             }
             players_with_pose += 1
             draw_pose_overlay(annotated_frame, pose_detection["keypoints"])
+
+            fall_confidence = 0
+            posture_score = posture_analysis["posture_score"]
+            trunk_lean_deg = pose_metrics.get("trunk_lean_deg")
+            speed_px = float(player.get("speed_px") or 0.0)
+            if player.get("fall_candidate"):
+                fall_confidence += 45
+            if posture_score < 65:
+                fall_confidence += 25
+            if speed_px > 8:
+                fall_confidence += 15
+            if trunk_lean_deg is not None and trunk_lean_deg > 30:
+                fall_confidence += 15
+
+            fall_detected = (
+                bool(player.get("fall_candidate"))
+                and posture_score < 65
+                and (
+                    speed_px > 8
+                    or (trunk_lean_deg is not None and trunk_lean_deg > 30)
+                    or len(posture_analysis["injury_risk_flags"]) >= 1
+                )
+            )
+            player["fall_confidence"] = min(100, int(fall_confidence))
+            player["fall_detected"] = fall_detected
+            if fall_detected:
+                self.speak_alert(
+                    "Warning fall detected.",
+                    alert_key="fall-detected",
+                )
+                cv2.putText(
+                    annotated_frame,
+                    f"FALL DETECTED ({player['fall_confidence']}%)",
+                    (player["bbox"][0], player["bbox"][1] - 80),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.65,
+                    (0, 0, 255),
+                    3,
+                )
 
             trunk_lean_label = pose_metrics["trunk_lean_deg"]
             if trunk_lean_label is not None:
@@ -471,6 +613,10 @@ class SportsAnalyticsPipeline:
             "avg_posture_score": round(sum(posture_scores) / len(posture_scores), 2) if posture_scores else None,
             "injury_risk_player_ids": risk_flagged_player_ids,
             "injury_risk_count": len(risk_flagged_player_ids),
+            "confirmed_fall_player_ids": [
+                player["track_id"] for player in players if player.get("fall_detected")
+            ],
+            "confirmed_fall_count": sum(1 for player in players if player.get("fall_detected")),
         }
         return players, pose_summary
 
@@ -556,7 +702,7 @@ class SportsAnalyticsPipeline:
 
         if tracked_center is not None:
             smoothed_center = self._record_ball_point(
-                frame_index=frame_index,
+                frame_index=frame_index, 
                 detected_center=detected_center,
                 tracked_center=tracked_center,
                 bbox=bbox,
@@ -936,9 +1082,10 @@ class SportsAnalyticsPipeline:
         racket_summary: dict[str, Any],
         speed_summary: dict[str, Any],
         impact_power_summary: dict[str, Any],
+        biomechanics: dict[str, Any],
         recommendations: dict[str, Any],
     ) -> dict[str, Any]:
-        fall_alerts = sum(1 for player in players if player["fall_candidate"])
+        fall_alerts = int(pose_summary.get("confirmed_fall_count", 0) or 0)
         current_speed = speed_summary["current_speed"]
         current_speed_px_per_sec = current_speed["speed_px_per_sec"] if current_speed is not None else None
         current_speed_km_per_hr = current_speed["speed_km_per_hr"] if current_speed is not None else None
@@ -966,7 +1113,51 @@ class SportsAnalyticsPipeline:
             contact_candidate_count=event_summary["contact_candidate_count"],
             object_tracking_provider=ball_tracking["tracking_mode"],
         )
+        # Advanced analytics
+        advanced_metrics = {
+            "shot": None,
+            "intent": None,
+            "pattern": None,
+            "weakness": None,
+        }
+
+        try:
+            primary_player = players[0] if players else None
+
+            if primary_player:
+                pose_data = (primary_player.get("pose") or {}).get("angles_deg", {})
+
+                pose_input = {
+                    "racket_high": pose_data.get("shoulder_angle", 0) > 50 if pose_data else False,
+                    "swing_side": "right",
+                }
+
+                ball_speed = speed_summary.get("current_speed", {})
+                ball_input = {
+                    "speed": ball_speed.get("speed_px_per_sec", 0) if ball_speed else 0,
+                }
+
+                movement = "forward" if (primary_player.get("speed_px") or 0) > 5 else "static"
+
+                shot = self.shot_classifier.classify(pose_input, ball_input, primary_player)
+                intent = self.intent_detector.detect(shot, primary_player, movement)
+                pattern = self.sequence_analyzer.update(shot)
+
+                success = intent != "defensive"
+                self.opponent_model.update(shot, success)
+                weakness = self.opponent_model.get_weakness()
+
+                advanced_metrics = {
+                    "shot": shot,
+                    "intent": intent,
+                    "pattern": pattern,
+                    "weakness": weakness,
+                }
+        except Exception as e:
+            advanced_metrics["error"] = str(e)
         return {
+            "biomechanics": biomechanics,
+            "advanced_analytics": advanced_metrics,
             "status": "running",
             "phase": "phase_9_dashboard",
             "core_mode": "sport_agnostic",
@@ -1014,6 +1205,7 @@ class SportsAnalyticsPipeline:
                 "impact_power_score": contact_power_score,
                 "recommendation_count": recommendations["recommendation_count"],
                 "fall_alerts": fall_alerts,
+                "confirmed_fall_player_ids": pose_summary.get("confirmed_fall_player_ids", []),
             },
             "baseline": baseline,
             "players": players,
@@ -1054,7 +1246,8 @@ def run_video_session(
         )
 
     pipeline = SportsAnalyticsPipeline(config)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    raw_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    fps = resolve_capture_fps(raw_fps, resolved_source.source_type)
     frame_width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)  or 0)
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     _raw_total   = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)  or 0)
@@ -1067,17 +1260,7 @@ def run_video_session(
     match_metadata = build_match_metadata(config, session_id)
     writer = SessionWriter(session_paths.stats_path, config.latest_stats_paths)
     clear_preview_frame(session_paths.preview_frame_path)
-    video_writer = (
-        build_video_writer(
-            session_paths.output_video_path,
-            fps,
-            frame_width,
-            frame_height,
-            codec_preference=config.video_writer_codec,
-        )
-        if config.write_output_video
-        else None
-    )
+    video_writer = None
     clip_manager = ClipManager(session_id=session_id, data_dir=session_paths.session_dir)
     performance_collector = SessionPerformanceCollector()
     last_payload: dict[str, Any] = {
@@ -1116,6 +1299,7 @@ def run_video_session(
         "frame_index": 0,
         "total_frames": total_frames,
         "fps": round(float(fps), 2) if fps else 0.0,
+        "source_fps": round(raw_fps, 2) if raw_fps else 0.0,
         "timestamp_seconds": 0.0,
         "video_duration_seconds": video_duration_seconds,
         "frame_size": {"width": 0, "height": 0},
@@ -1139,6 +1323,8 @@ def run_video_session(
             "impact_power_score": None,
             "recommendation_count": 0,
             "fall_alerts": 0,
+            "session_injury_risk_frames": 0,
+            "session_fall_alert_frames": 0,
         },
         "baseline": build_baseline_output(
             sport=config.sport,
@@ -1180,6 +1366,8 @@ def run_video_session(
                 "avg_posture_score": None,
                 "injury_risk_player_ids": [],
                 "injury_risk_count": 0,
+                "confirmed_fall_player_ids": [],
+                "confirmed_fall_count": 0,
             },
         },
         "events": default_event_summary(0),
@@ -1222,11 +1410,17 @@ def run_video_session(
     writer.write(last_payload)
 
     frame_index = 0
+    session_injury_risk_frames = 0
+    session_fall_alert_frames = 0
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
+            frame_index += 1
+
+            if frame_index % 4 != 0:
+              continue
 
             result = pipeline.process_frame(frame, frame_index, fps)
             last_payload = result.payload
@@ -1292,12 +1486,34 @@ def run_video_session(
                     frame_width=frame_width,
                     frame_height=frame_height,
                 )
+            for fall_pid in last_payload["pose"]["summary"].get("confirmed_fall_player_ids", []):
+                clip_manager.trigger_snippet(
+                    metric_name=f"fall_detected_player_{fall_pid}",
+                    frame_index=frame_index,
+                    fps=fps or 25.0,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
 
             # Save a bad-frame JPEG when any player's posture score is poor
             timestamp_sec = frame_index / fps if fps else 0.0
             for player in last_payload.get("players", []):
                 posture = (player.get("pose") or {}).get("posture") or {}
                 posture_score = posture.get("posture_score")
+                if player.get("fall_detected"):
+                    clip_manager.check_and_save_bad_frame(
+                        annotated_frame=result.annotated_frame,
+                        reason=f"Fall Detected ({player.get('fall_confidence', 0)}%) - Player {player['track_id']}",
+                        timestamp_seconds=timestamp_sec,
+                        frame_index=frame_index,
+                    )
+                if posture.get("injury_risk_flags"):
+                    clip_manager.check_and_save_bad_frame(
+                        annotated_frame=result.annotated_frame,
+                        reason=f"Injury Risk - Player {player['track_id']}",
+                        timestamp_seconds=timestamp_sec,
+                        frame_index=frame_index,
+                    )
                 if posture_score is not None and posture_score < 60:
                     clip_manager.check_and_save_bad_frame(
                         annotated_frame=result.annotated_frame,
@@ -1307,6 +1523,12 @@ def run_video_session(
                     )
 
             last_payload["clip_summary"] = clip_manager.get_summary()
+            if last_payload["pose"]["summary"].get("injury_risk_count", 0):
+                session_injury_risk_frames += 1
+            if last_payload["pose"]["summary"].get("confirmed_fall_count", 0):
+                session_fall_alert_frames += 1
+            last_payload["summary"]["session_injury_risk_frames"] = session_injury_risk_frames
+            last_payload["summary"]["session_fall_alert_frames"] = session_fall_alert_frames
             performance_collector.update(last_payload)
             last_payload["performance_metrics"] = performance_collector.build_payload()
             # -----------------------------------------------------------------
@@ -1343,7 +1565,6 @@ def run_video_session(
                     writer.write(last_payload)
                     break
 
-            frame_index += 1
             if max_frames is not None and frame_index >= max_frames:
                 last_payload["status"] = "completed"
                 last_payload["last_updated_at"] = iso_now()
@@ -1430,6 +1651,18 @@ def should_persist_frame(frame_index: int, interval_frames: int) -> bool:
     return frame_index == 0 or (frame_index % interval) == 0
 
 
+def resolve_capture_fps(raw_fps: float, source_type: str) -> float:
+    if raw_fps > 0:
+        return raw_fps
+
+    # Webcam/stream drivers often report 0 FPS, but downstream timing,
+    # velocity, and dashboard progress still need a stable frame rate.
+    if source_type in {"webcam", "rtsp"}:
+        return 25.0
+
+    return 30.0
+
+
 def build_video_writer(
     path: Path,
     fps: float,
@@ -1445,7 +1678,7 @@ def build_video_writer(
     for fourcc_str in preferred_video_codecs(codec_preference):
         fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
         writer = cv2.VideoWriter(str(path), fourcc, fps or 25.0, (frame_width, frame_height))
-        if writer.isOpened():
+        if writer is not None and writer.isOpened():
             return writer
     return None
 
@@ -1461,11 +1694,11 @@ def preferred_video_codecs(codec_preference: str | None) -> tuple[str, ...]:
     if configured in explicit:
         return explicit[configured]
 
-    # Default to browser-friendly codecs first so Streamlit video playback keeps
-    # working as expected. Use explicit `mp4v` or `--no-output-video` when you
-    # want the faster/safer Windows path instead.
+    # Prefer `mp4v` on Windows because OpenCV/FFmpeg setups there commonly miss
+    # a working OpenH264 runtime, which causes noisy writer initialization
+    # failures before falling back anyway.
     if os.name == "nt":
-        return ("avc1", "H264", "mp4v")
+        return ("mp4v", "avc1", "H264")
     return ("avc1", "H264", "mp4v")
 
 
@@ -1493,3 +1726,65 @@ def bbox_area(bbox: list[int] | None) -> int:
 
 def euclidean_distance(point_a: list[int] | tuple[int, int], point_b: list[int] | tuple[int, int]) -> float:
     return float(np.sqrt((point_a[0] - point_b[0]) ** 2 + (point_a[1] - point_b[1]) ** 2))
+
+
+def parse_cli_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run Sports AI video analysis.")
+    parser.add_argument("--sport", default="tennis", help="Sport profile to use.")
+    parser.add_argument(
+        "--source-type",
+        default="file",
+        choices=("file", "demo", "webcam", "rtsp"),
+        help="Input source type.",
+    )
+    parser.add_argument("--source", dest="source_uri", help="Input file path, webcam index, demo clip, or stream URL.")
+    parser.add_argument("--match-id", help="Optional match identifier.")
+    parser.add_argument("--camera-id", help="Optional camera identifier.")
+    parser.add_argument("--camera-label", help="Optional camera label.")
+    parser.add_argument("--camera-role", help="Optional camera role.")
+    parser.add_argument("--model-path", help="Override detection model path.")
+    parser.add_argument("--pose-model-path", help="Override pose model path.")
+    parser.add_argument("--max-frames", type=int, help="Optional frame limit for debugging.")
+    parser.add_argument("--display", action="store_true", help="Show the OpenCV preview window.")
+    parser.add_argument("--no-display", action="store_true", help="Disable the OpenCV preview window.")
+    parser.add_argument("--no-output-video", action="store_true", help="Skip writing the processed output video.")
+    parser.add_argument("--video-codec", help="Preferred output codec, e.g. mp4v or avc1.")
+    parser.add_argument("--frame-stride", type=int, help="Analyze every Nth frame for faster runs.")
+    parser.add_argument("--stats-interval", type=int, help="Write dashboard stats every N processed frames.")
+    parser.add_argument("--preview-interval", type=int, help="Write preview frames every N processed frames.")
+    return parser.parse_args()
+
+
+def build_app_config_from_args(args: argparse.Namespace) -> AppConfig:
+    return AppConfig(
+        sport=str(args.sport or "tennis"),
+        source_type=str(args.source_type or "file"),
+        source_uri=args.source_uri,
+        match_id=args.match_id,
+        camera_id=args.camera_id,
+        camera_label=args.camera_label,
+        camera_role=args.camera_role,
+        model_path=Path(args.model_path).expanduser() if args.model_path else DEFAULT_MODEL_PATH,
+        pose_model_path=Path(args.pose_model_path).expanduser() if args.pose_model_path else DEFAULT_POSE_MODEL_PATH,
+        frame_stride=max(1, int(args.frame_stride)) if args.frame_stride else 4,
+        stats_write_interval_frames=max(1, int(args.stats_interval)) if args.stats_interval else 3,
+        preview_write_interval_frames=max(1, int(args.preview_interval)) if args.preview_interval else 3,
+        write_output_video=not bool(args.no_output_video),
+        video_writer_codec=args.video_codec or "auto",
+    )
+
+
+def main() -> int:
+    args = parse_cli_args()
+    config = build_app_config_from_args(args)
+    display = bool(args.display and not args.no_display)
+    run_video_session(
+        config,
+        display=display,
+        max_frames=args.max_frames,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -151,7 +151,7 @@ class ClipManager:
                 max(fps, 1.0),
                 (frame_width, frame_height),
             )
-            if writer.isOpened():
+            if writer is not None and writer.isOpened():
                 break
         else:
             return  # Could not open any writer – skip silently
